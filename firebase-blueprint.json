@@ -1,0 +1,341 @@
+{
+  "entities": {
+    "UserProfile": {
+      "title": "UserProfile",
+      "description": "Authenticated brewery user profile with strictly isolated PII (email/phone) and immutable RBAC role.",
+      "type": "object",
+      "properties": {
+        "uid": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$",
+          "description": "Firebase Auth UID of the user."
+        },
+        "workerId": {
+          "type": "string",
+          "minLength": 2,
+          "maxLength": 32,
+          "pattern": "^[a-zA-Z0-9_\\-]+$",
+          "description": "Plant employee ID (e.g., 240301, ADMIN01)."
+        },
+        "displayName": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 80,
+          "description": "Display name of the worker or manager."
+        },
+        "email": {
+          "type": "string",
+          "format": "email",
+          "minLength": 3,
+          "maxLength": 254,
+          "description": "Verified email address (PII)."
+        },
+        "phone": {
+          "type": "string",
+          "minLength": 0,
+          "maxLength": 30,
+          "description": "Emergency contact number (PII)."
+        },
+        "process": {
+          "type": "string",
+          "enum": ["MALTING", "MASHING", "FERMENTATION", "FILTRATION", "REFINING", "BOTTLING", "OTHER"],
+          "description": "Assigned brewery manufacturing process."
+        },
+        "role": {
+          "type": "string",
+          "enum": ["WORKER", "ADMIN", "MAINTENANCE"],
+          "description": "RBAC role (non-admins can only register as WORKER)."
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server timestamp when profile was created."
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server timestamp when profile was last updated."
+        }
+      },
+      "required": ["uid", "workerId", "displayName", "email", "process", "role", "createdAt", "updatedAt"]
+    },
+    "AdminGrant": {
+      "title": "AdminGrant",
+      "description": "Trusted RBAC marker document granting administrator privileges to a Firebase Auth UID.",
+      "type": "object",
+      "properties": {
+        "uid": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$",
+          "description": "Firebase Auth UID of the administrator."
+        },
+        "grantedAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server timestamp when admin privilege was granted."
+        }
+      },
+      "required": ["uid", "grantedAt"]
+    },
+    "Suggestion": {
+      "title": "Suggestion",
+      "description": "Brewery floor suggestion, breakdown report, preventive maintenance notice, or risk assessment.",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$",
+          "description": "Unique suggestion document ID."
+        },
+        "ownerUid": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$",
+          "description": "Firebase Auth UID of the user who submitted the suggestion."
+        },
+        "title": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 200,
+          "description": "Suggestion headline."
+        },
+        "description": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 4000,
+          "description": "Detailed description of the issue or improvement idea."
+        },
+        "category": {
+          "type": "string",
+          "enum": ["PROCESS_IMPROVEMENT", "BREAKDOWN_REPAIR", "PREVENTIVE_MAINT", "RISK_ASSESSMENT"],
+          "description": "One of the four brewery suggestion categories."
+        },
+        "process": {
+          "type": "string",
+          "enum": ["MALTING", "MASHING", "FERMENTATION", "FILTRATION", "REFINING", "BOTTLING", "OTHER"],
+          "description": "Brewery manufacturing process."
+        },
+        "locationDetail": {
+          "type": "string",
+          "minLength": 0,
+          "maxLength": 200,
+          "description": "Specific equipment or zone location."
+        },
+        "authorId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 64,
+          "pattern": "^[a-zA-Z0-9_\\-]+$",
+          "description": "Plant worker employee ID."
+        },
+        "authorName": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 80,
+          "description": "Plant worker display name."
+        },
+        "authorProcess": {
+          "type": "string",
+          "enum": ["MALTING", "MASHING", "FERMENTATION", "FILTRATION", "REFINING", "BOTTLING", "OTHER"],
+          "description": "Author's primary brewery process."
+        },
+        "status": {
+          "type": "string",
+          "enum": ["PENDING", "REVIEWING", "IN_PROGRESS", "COMPLETED", "REJECTED"],
+          "description": "Current workflow status."
+        },
+        "isUrgent": {
+          "type": "boolean",
+          "description": "Urgent dispatch flag for breakdowns and risk assessments."
+        },
+        "urgencyReason": {
+          "type": "string",
+          "minLength": 0,
+          "maxLength": 300,
+          "description": "Optional reason why the item is urgent."
+        },
+        "priorityScore": {
+          "type": "number",
+          "description": "Computed priority score (0 to 100)."
+        },
+        "assignedTo": {
+          "type": "string",
+          "minLength": 0,
+          "maxLength": 120,
+          "description": "Assigned maintenance/admin contact label."
+        },
+        "assignedToId": {
+          "type": "string",
+          "minLength": 0,
+          "maxLength": 64,
+          "description": "Assigned worker/maintenance employee ID."
+        },
+        "dueDate": {
+          "type": "string",
+          "minLength": 0,
+          "maxLength": 10,
+          "pattern": "^(|\\d{4}-\\d{2}-\\d{2})$",
+          "description": "Action due date in YYYY-MM-DD format."
+        },
+        "deadlineAlertEnabled": {
+          "type": "boolean",
+          "description": "Whether imminent deadline alerts are enabled."
+        },
+        "deadlineAlertDays": {
+          "type": "number",
+          "description": "Days before due date to trigger imminent warning (0 to 30)."
+        },
+        "adminFeedback": {
+          "type": "string",
+          "minLength": 0,
+          "maxLength": 2000,
+          "description": "Official manager/maintenance feedback comment."
+        },
+        "quickTags": {
+          "type": "array",
+          "description": "Bounded list of up to 10 quick checklist tags."
+        },
+        "isOfflineSynced": {
+          "type": "boolean",
+          "description": "Whether synced to cloud Firestore."
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server timestamp when created."
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server timestamp when last updated."
+        },
+        "completedAt": {
+          "type": "string",
+          "minLength": 0,
+          "maxLength": 40,
+          "description": "ISO timestamp string when marked completed."
+        }
+      },
+      "required": [
+        "id",
+        "ownerUid",
+        "title",
+        "description",
+        "category",
+        "process",
+        "authorId",
+        "authorName",
+        "authorProcess",
+        "status",
+        "isUrgent",
+        "priorityScore",
+        "createdAt",
+        "updatedAt"
+      ]
+    },
+    "SuggestionComment": {
+      "title": "SuggestionComment",
+      "description": "Action feedback and status history log entry under a parent suggestion.",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$",
+          "description": "Comment document ID."
+        },
+        "suggestionId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$",
+          "description": "Parent suggestion ID."
+        },
+        "parentOwnerUid": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$",
+          "description": "Firebase Auth UID of the parent suggestion owner."
+        },
+        "authorUid": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$",
+          "description": "Firebase Auth UID of the comment author."
+        },
+        "authorName": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 80,
+          "description": "Display name of the comment author."
+        },
+        "message": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 2000,
+          "description": "Comment or action log body."
+        },
+        "fromStatus": {
+          "type": "string",
+          "enum": ["PENDING", "REVIEWING", "IN_PROGRESS", "COMPLETED", "REJECTED"],
+          "description": "Previous suggestion status."
+        },
+        "toStatus": {
+          "type": "string",
+          "enum": ["PENDING", "REVIEWING", "IN_PROGRESS", "COMPLETED", "REJECTED"],
+          "description": "New suggestion status."
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server timestamp when comment was created."
+        }
+      },
+      "required": [
+        "id",
+        "suggestionId",
+        "parentOwnerUid",
+        "authorUid",
+        "authorName",
+        "message",
+        "createdAt"
+      ]
+    }
+  },
+  "firestore": {
+    "/users/{userId}": {
+      "schema": {
+        "$ref": "#/entities/UserProfile"
+      },
+      "description": "Authenticated user profile documents with owner/admin PII isolation."
+    },
+    "/admins/{userId}": {
+      "schema": {
+        "$ref": "#/entities/AdminGrant"
+      },
+      "description": "Trusted administrator grant documents."
+    },
+    "/suggestions/{suggestionId}": {
+      "schema": {
+        "$ref": "#/entities/Suggestion"
+      },
+      "description": "Brewery floor suggestions, priority scores, and deadline alert settings."
+    },
+    "/suggestions/{suggestionId}/comments/{commentId}": {
+      "schema": {
+        "$ref": "#/entities/SuggestionComment"
+      },
+      "description": "Status history logs and manager feedback comments bound to a parent suggestion."
+    }
+  }
+}

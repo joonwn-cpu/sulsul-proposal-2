@@ -1,0 +1,6 @@
+{
+  "name": "술술제안 - 탁·약주 현장 스마트 제안관리 시스템",
+  "description": "탁·약주 주류 제조 현장(27명)을 위한 모바일 공정개선/고장정비/예방정비/위험성평가 스마트 제안관리 및 관리자 대시보드 시스템",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

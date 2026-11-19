@@ -1,0 +1,334 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // 1. Global Safety Net (Default-Deny Catch-All)
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // 2. Global Hardened Primitives
+    function incoming() {
+      return request.resource.data;
+    }
+
+    function existing() {
+      return resource.data;
+    }
+
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isVerifiedUser() {
+      return isSignedIn() && request.auth.token.email_verified == true;
+    }
+
+    function isOwner(uid) {
+      return isVerifiedUser() && request.auth.uid == uid;
+    }
+
+    // Zero-DB-read admin check (safe for allow list without get()/exists())
+    function isBootstrappedAdmin() {
+      return isVerifiedUser() && request.auth.token.email == 'joonwn@gmail.com';
+    }
+
+    // Full admin check for single-document operations (used AFTER static validation)
+    function isAdmin() {
+      return isBootstrappedAdmin()
+        || (isVerifiedUser() && exists(/databases/$(database)/documents/admins/$(request.auth.uid)));
+    }
+
+    function isValidId(id) {
+      return id is string && id.size() >= 1 && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    function isValidProcess(val) {
+      return val is string
+        && val.size() <= 32
+        && val in ['MALTING', 'MASHING', 'FERMENTATION', 'FILTRATION', 'REFINING', 'BOTTLING', 'OTHER'];
+    }
+
+    function isValidCategory(val) {
+      return val is string
+        && val.size() <= 32
+        && val in ['PROCESS_IMPROVEMENT', 'BREAKDOWN_REPAIR', 'PREVENTIVE_MAINT', 'RISK_ASSESSMENT'];
+    }
+
+    function isValidStatus(val) {
+      return val is string
+        && val.size() <= 20
+        && val in ['PENDING', 'REVIEWING', 'IN_PROGRESS', 'COMPLETED', 'REJECTED'];
+    }
+
+    function isValidRole(val) {
+      return val is string
+        && val.size() <= 20
+        && val in ['WORKER', 'ADMIN', 'MAINTENANCE'];
+    }
+
+    function isValidDueDate(val) {
+      return val is string
+        && val.size() <= 10
+        && val.matches('^(|\\d{4}-\\d{2}-\\d{2})$');
+    }
+
+    function isValidQuickTags(val) {
+      return val is list
+        && val.size() <= 10
+        && (val.size() == 0 || (val[0] is string && val[0].size() <= 80));
+    }
+
+    // 3. Entity Validation Blueprints (Anti-Update-Gap)
+    function isValidUserProfile(data, userId) {
+      return data.keys().hasAll(['uid', 'workerId', 'displayName', 'email', 'process', 'role', 'createdAt', 'updatedAt'])
+        && data.keys().hasOnly(['uid', 'workerId', 'displayName', 'email', 'phone', 'process', 'role', 'createdAt', 'updatedAt'])
+        && isValidId(data.uid)
+        && data.uid == userId
+        && data.workerId is string && data.workerId.size() >= 2 && data.workerId.size() <= 32 && data.workerId.matches('^[a-zA-Z0-9_\\-]+$')
+        && data.displayName is string && data.displayName.size() >= 1 && data.displayName.size() <= 80
+        && data.email is string && data.email.size() >= 3 && data.email.size() <= 254
+        && (!('phone' in data) || (data.phone is string && data.phone.size() <= 30))
+        && isValidProcess(data.process)
+        && isValidRole(data.role)
+        && data.createdAt is timestamp
+        && data.updatedAt is timestamp;
+    }
+
+    function isValidAdminGrant(data, userId) {
+      return data.keys().hasAll(['uid', 'grantedAt'])
+        && data.keys().hasOnly(['uid', 'grantedAt'])
+        && isValidId(data.uid)
+        && data.uid == userId
+        && data.grantedAt is timestamp;
+    }
+
+    function isValidSuggestion(data, suggestionId) {
+      return data.keys().hasAll([
+          'id', 'ownerUid', 'title', 'description', 'category', 'process',
+          'authorId', 'authorName', 'authorProcess', 'status', 'isUrgent',
+          'priorityScore', 'createdAt', 'updatedAt'
+        ])
+        && data.keys().hasOnly([
+          'id', 'ownerUid', 'title', 'description', 'category', 'process',
+          'locationDetail', 'authorId', 'authorName', 'authorProcess', 'status',
+          'isUrgent', 'urgencyReason', 'priorityScore', 'assignedTo', 'assignedToId',
+          'dueDate', 'deadlineAlertEnabled', 'deadlineAlertDays', 'adminFeedback',
+          'quickTags', 'isOfflineSynced', 'createdAt', 'updatedAt', 'completedAt'
+        ])
+        && isValidId(data.id)
+        && data.id == suggestionId
+        && isValidId(data.ownerUid)
+        && data.title is string && data.title.size() >= 1 && data.title.size() <= 200
+        && data.description is string && data.description.size() >= 1 && data.description.size() <= 4000
+        && isValidCategory(data.category)
+        && isValidProcess(data.process)
+        && (!('locationDetail' in data) || (data.locationDetail is string && data.locationDetail.size() <= 200))
+        && data.authorId is string && data.authorId.size() >= 1 && data.authorId.size() <= 64 && data.authorId.matches('^[a-zA-Z0-9_\\-]+$')
+        && data.authorName is string && data.authorName.size() >= 1 && data.authorName.size() <= 80
+        && isValidProcess(data.authorProcess)
+        && isValidStatus(data.status)
+        && data.isUrgent is bool
+        && (!('urgencyReason' in data) || (data.urgencyReason is string && data.urgencyReason.size() <= 300))
+        && data.priorityScore is number && data.priorityScore >= 0 && data.priorityScore <= 100
+        && (!('assignedTo' in data) || (data.assignedTo is string && data.assignedTo.size() <= 120))
+        && (!('assignedToId' in data) || (data.assignedToId is string && data.assignedToId.size() <= 64))
+        && (!('dueDate' in data) || isValidDueDate(data.dueDate))
+        && (!('deadlineAlertEnabled' in data) || data.deadlineAlertEnabled is bool)
+        && (!('deadlineAlertDays' in data) || (data.deadlineAlertDays is number && data.deadlineAlertDays >= 0 && data.deadlineAlertDays <= 30))
+        && (!('adminFeedback' in data) || (data.adminFeedback is string && data.adminFeedback.size() <= 2000))
+        && (!('quickTags' in data) || isValidQuickTags(data.quickTags))
+        && (!('isOfflineSynced' in data) || data.isOfflineSynced is bool)
+        && data.createdAt is timestamp
+        && data.updatedAt is timestamp
+        && (!('completedAt' in data) || (data.completedAt is string && data.completedAt.size() <= 40));
+    }
+
+    function isValidSuggestionComment(data, suggestionId, commentId) {
+      return data.keys().hasAll(['id', 'suggestionId', 'parentOwnerUid', 'authorUid', 'authorName', 'message', 'createdAt'])
+        && data.keys().hasOnly(['id', 'suggestionId', 'parentOwnerUid', 'authorUid', 'authorName', 'message', 'fromStatus', 'toStatus', 'createdAt'])
+        && isValidId(data.id)
+        && data.id == commentId
+        && isValidId(data.suggestionId)
+        && data.suggestionId == suggestionId
+        && isValidId(data.parentOwnerUid)
+        && isValidId(data.authorUid)
+        && data.authorUid == request.auth.uid
+        && data.authorName is string && data.authorName.size() >= 1 && data.authorName.size() <= 80
+        && data.message is string && data.message.size() >= 1 && data.message.size() <= 2000
+        && (!('fromStatus' in data) || isValidStatus(data.fromStatus))
+        && (!('toStatus' in data) || isValidStatus(data.toStatus))
+        && data.createdAt is timestamp;
+    }
+
+    // 4. Collection: /users/{userId} (Strict PII Isolation)
+    match /users/{userId} {
+      allow get: if isVerifiedUser()
+        && isValidId(userId)
+        && (isOwner(userId) || isAdmin());
+
+      allow list: if isBootstrappedAdmin();
+
+      allow create: if isVerifiedUser()
+        && isValidId(userId)
+        && isValidUserProfile(incoming(), userId)
+        && incoming().createdAt == request.time
+        && incoming().updatedAt == request.time
+        && (
+          (isOwner(userId) && incoming().role == 'WORKER' && incoming().email == request.auth.token.email)
+          || isAdmin()
+        );
+
+      allow update: if isVerifiedUser()
+        && isValidId(userId)
+        && isValidUserProfile(incoming(), userId)
+        && incoming().uid == existing().uid
+        && incoming().createdAt == existing().createdAt
+        && incoming().updatedAt == request.time
+        && (
+          isAdmin()
+          || (
+            isOwner(userId)
+            && incoming().role == existing().role
+            && incoming().email == existing().email
+            && incoming().diff(existing()).affectedKeys().hasOnly(['displayName', 'phone', 'process', 'workerId', 'updatedAt'])
+          )
+        );
+
+      allow delete: if isVerifiedUser()
+        && isValidId(userId)
+        && isAdmin();
+    }
+
+    // 5. Collection: /admins/{userId} (Trusted RBAC Grants)
+    match /admins/{userId} {
+      allow get: if isVerifiedUser()
+        && isValidId(userId)
+        && (isOwner(userId) || isBootstrappedAdmin());
+
+      allow list: if isBootstrappedAdmin();
+
+      allow create: if isVerifiedUser()
+        && isValidId(userId)
+        && isValidAdminGrant(incoming(), userId)
+        && incoming().grantedAt == request.time
+        && isBootstrappedAdmin();
+
+      allow update: if false;
+
+      allow delete: if isVerifiedUser()
+        && isValidId(userId)
+        && isBootstrappedAdmin();
+    }
+
+    // 6. Collection: /suggestions/{suggestionId}
+    match /suggestions/{suggestionId} {
+      allow get: if isVerifiedUser()
+        && isValidId(suggestionId)
+        && (existing().ownerUid == request.auth.uid || isAdmin());
+
+      // Pillar 8: Zero-DB-read list enforcement against resource.data
+      allow list: if isVerifiedUser()
+        && (resource.data.ownerUid == request.auth.uid || isBootstrappedAdmin());
+
+      allow create: if isVerifiedUser()
+        && isValidId(suggestionId)
+        && isValidSuggestion(incoming(), suggestionId)
+        && incoming().ownerUid == request.auth.uid
+        && incoming().createdAt == request.time
+        && incoming().updatedAt == request.time
+        && (
+          isAdmin()
+          || (
+            incoming().status == 'PENDING'
+            && !('adminFeedback' in incoming())
+            && !('assignedTo' in incoming())
+            && !('assignedToId' in incoming())
+            && !('completedAt' in incoming())
+          )
+        );
+
+      // Action-Based Update Pattern + Terminal State Lock + Admin Override
+      allow update: if isVerifiedUser()
+        && isValidId(suggestionId)
+        && isValidSuggestion(incoming(), suggestionId)
+        && incoming().id == existing().id
+        && incoming().ownerUid == existing().ownerUid
+        && incoming().createdAt == existing().createdAt
+        && incoming().updatedAt == request.time
+        && (
+          // Tier 1: Admin override (can modify workflow status, assignment, feedback, deadline alerts)
+          (
+            isAdmin()
+            && incoming().diff(existing()).affectedKeys().hasOnly([
+              'status', 'assignedTo', 'assignedToId', 'dueDate',
+              'deadlineAlertEnabled', 'deadlineAlertDays', 'adminFeedback',
+              'completedAt', 'updatedAt', 'priorityScore', 'isUrgent', 'urgencyReason'
+            ])
+          )
+          // Tier 2: Suggestion owner editing draft content before terminal state
+          || (
+            existing().ownerUid == request.auth.uid
+            && existing().status != 'COMPLETED'
+            && existing().status != 'REJECTED'
+            && incoming().status == existing().status
+            && incoming().diff(existing()).affectedKeys().hasOnly([
+              'title', 'description', 'locationDetail', 'quickTags', 'updatedAt'
+            ])
+          )
+          // Tier 2b: Suggestion owner toggling personal deadline alert before terminal state
+          || (
+            existing().ownerUid == request.auth.uid
+            && existing().status != 'COMPLETED'
+            && existing().status != 'REJECTED'
+            && incoming().status == existing().status
+            && incoming().diff(existing()).affectedKeys().hasOnly([
+              'dueDate', 'deadlineAlertEnabled', 'deadlineAlertDays', 'updatedAt'
+            ])
+          )
+        );
+
+      allow delete: if isVerifiedUser()
+        && isValidId(suggestionId)
+        && isAdmin();
+
+      // 7. Subcollection: /suggestions/{suggestionId}/comments/{commentId} (Master Gate)
+      match /comments/{commentId} {
+        allow get: if isVerifiedUser()
+          && isValidId(suggestionId)
+          && isValidId(commentId)
+          && exists(/databases/$(database)/documents/suggestions/$(suggestionId))
+          && (
+            get(/databases/$(database)/documents/suggestions/$(suggestionId)).data.ownerUid == request.auth.uid
+            || isAdmin()
+          );
+
+        // Zero-DB-read list enforcement against resource.data
+        allow list: if isVerifiedUser()
+          && (
+            resource.data.parentOwnerUid == request.auth.uid
+            || resource.data.authorUid == request.auth.uid
+            || isBootstrappedAdmin()
+          );
+
+        allow create: if isVerifiedUser()
+          && isValidId(suggestionId)
+          && isValidId(commentId)
+          && isValidSuggestionComment(incoming(), suggestionId, commentId)
+          && incoming().createdAt == request.time
+          && exists(/databases/$(database)/documents/suggestions/$(suggestionId))
+          && incoming().parentOwnerUid == get(/databases/$(database)/documents/suggestions/$(suggestionId)).data.ownerUid
+          && (
+            get(/databases/$(database)/documents/suggestions/$(suggestionId)).data.ownerUid == request.auth.uid
+            || isAdmin()
+          );
+
+        allow update: if false;
+
+        allow delete: if isVerifiedUser()
+          && isValidId(suggestionId)
+          && isValidId(commentId)
+          && isAdmin();
+      }
+    }
+  }
+}
