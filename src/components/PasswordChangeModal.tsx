@@ -10,6 +10,7 @@ import {
   X,
 } from 'lucide-react';
 import {
+  DEFAULT_INITIAL_PASSWORD,
   MIN_PASSWORD_LENGTH,
   changeCurrentUserPassword,
   formatFirebaseAuthError,
@@ -54,7 +55,7 @@ export function PasswordChangeModal({
       return;
     }
     if (newPassword.length < MIN_PASSWORD_LENGTH) {
-      setErrorMessage(`새 비밀번호는 최소 ${MIN_PASSWORD_LENGTH}자 이상이어야 합니다.`);
+      setErrorMessage(`새 비밀번호는 최소 ${MIN_PASSWORD_LENGTH}자리 이상이어야 합니다.`);
       return;
     }
     if (newPassword !== confirmPassword) {
@@ -116,8 +117,9 @@ export function PasswordChangeModal({
         <form onSubmit={handleSubmit} className="p-6 space-y-4">
           {forced && (
             <div className="p-3.5 rounded-xl bg-amber-50 border border-amber-200 text-amber-950 text-xs leading-relaxed">
-              관리자가 발급한 초기 비밀번호로 첫 접속하셨습니다. 사내 보안 정책(F-01)에 따라
-              본인만 아는 새 비밀번호로 변경한 뒤 시스템을 이용해 주세요.
+              관리자가 발급한 초기 비밀번호(기본 <span className="font-mono font-bold">{DEFAULT_INITIAL_PASSWORD}</span>)로
+              첫 접속하셨습니다. 사내 보안 정책(F-01)에 따라 본인만 아는 새 비밀번호({MIN_PASSWORD_LENGTH}자리 이상)로
+              변경한 뒤 시스템을 이용해 주세요.
             </div>
           )}
 
@@ -143,7 +145,7 @@ export function PasswordChangeModal({
               htmlFor="pw-current"
               className="block text-xs font-bold text-slate-700 mb-1"
             >
-              {forced ? '초기 비밀번호' : '현재 비밀번호'}
+              {forced ? `초기 비밀번호 (기본 ${DEFAULT_INITIAL_PASSWORD})` : '현재 비밀번호'}
             </label>
             <input
               id="pw-current"
@@ -151,6 +153,7 @@ export function PasswordChangeModal({
               autoComplete="current-password"
               value={currentPassword}
               onChange={e => setCurrentPassword(e.target.value)}
+              placeholder={forced ? `초기 비밀번호 입력 (예: ${DEFAULT_INITIAL_PASSWORD})` : '현재 비밀번호 입력'}
               required
               className="w-full h-10 px-3 rounded-xl border border-slate-300 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-600"
             />
@@ -161,7 +164,7 @@ export function PasswordChangeModal({
               htmlFor="pw-new"
               className="block text-xs font-bold text-slate-700 mb-1"
             >
-              새 비밀번호 (6자 이상)
+              새 비밀번호 ({MIN_PASSWORD_LENGTH}자리 이상)
             </label>
             <input
               id="pw-new"
@@ -169,6 +172,7 @@ export function PasswordChangeModal({
               autoComplete="new-password"
               value={newPassword}
               onChange={e => setNewPassword(e.target.value)}
+              placeholder={`${MIN_PASSWORD_LENGTH}자리 이상 입력`}
               required
               minLength={MIN_PASSWORD_LENGTH}
               className="w-full h-10 px-3 rounded-xl border border-slate-300 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-600"
@@ -188,6 +192,7 @@ export function PasswordChangeModal({
               autoComplete="new-password"
               value={confirmPassword}
               onChange={e => setConfirmPassword(e.target.value)}
+              placeholder="새 비밀번호 재입력"
               required
               minLength={MIN_PASSWORD_LENGTH}
               className="w-full h-10 px-3 rounded-xl border border-slate-300 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-600"

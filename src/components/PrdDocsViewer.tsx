@@ -34,7 +34,7 @@ export function PrdDocsViewer() {
           <div>
             <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full text-xs font-semibold bg-indigo-500/20 text-indigo-300 border border-indigo-500/30 mb-3">
               <Server className="w-3.5 h-3.5" />
-              탁·약주 현장 스마트 제안관리 시스템 ('술술제안')
+              양조2팀 제품공정 스마트 제안관리 시스템 ('술술제안')
             </div>
             <h2 className="text-2xl sm:text-3xl font-extrabold tracking-tight">
               PRD & FS 3대 핵심 개발 산출물
@@ -168,7 +168,7 @@ export function PrdDocsViewer() {
           </div>
           <h4 className="font-bold text-slate-900 text-sm mb-1.5">실시간 onSnapshot 설계</h4>
           <p className="text-xs text-slate-600 leading-relaxed">
-            REST 폴링 방식 대신 WebSocket 기반 Firestore 리스너를 채택하여 발효조 온도 이상 및 병입기 고장 시 지연 시간 0초대로 전파됩니다.
+            REST 폴링 방식 대신 WebSocket 기반 Firestore 리스너를 채택하여 RFC·라벨러·포장기 설비 이상 시 지연 시간 0초대로 전파됩니다.
           </p>
         </div>
 
@@ -178,7 +178,7 @@ export function PrdDocsViewer() {
           </div>
           <h4 className="font-bold text-slate-900 text-sm mb-1.5">F-03 긴급 알림 트리거</h4>
           <p className="text-xs text-slate-600 leading-relaxed">
-            제안 등록 시 카테고리가 '고장정비' 또는 '위험성평가'이면 Firestore 트리거가 동작하여 관리자 및 공무팀 모바일로 Push 및 비프 알림을 자동 발송합니다.
+            제안 등록 시 카테고리가 '고장정비' 또는 '위험성평가'이면 Firestore 트리거가 동작하여 관리자·반장·파트장 모바일로 Push 및 비프 알림을 자동 발송합니다.
           </p>
         </div>
 
@@ -188,7 +188,7 @@ export function PrdDocsViewer() {
           </div>
           <h4 className="font-bold text-slate-900 text-sm mb-1.5">Vercel 배포 & PWA 최적화</h4>
           <p className="text-xs text-slate-600 leading-relaxed">
-            Next.js App Router로 Vercel에 단일 클릭 배포 가능하며, 현장 27명 스마트폰 홈 화면에 아이콘으로 설치하여 앱처럼 구동할 수 있습니다.
+            Next.js App Router로 Vercel에 단일 클릭 배포 가능하며, 양조2팀 제품공정 직원 스마트폰 홈 화면에 아이콘으로 설치하여 앱처럼 구동할 수 있습니다.
           </p>
         </div>
       </div>

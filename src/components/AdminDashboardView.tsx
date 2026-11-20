@@ -46,6 +46,7 @@ import {
 import { 
   CATEGORY_CONFIG, 
   PROCESS_CONFIG, 
+  PROCESS_ORDER,
   STATUS_CONFIG 
 } from '../data/mockBreweryData';
 import {
@@ -60,6 +61,7 @@ import {
   BrowserNotificationPermissionState,
   getDeadlineAlertInfo,
 } from '../lib/deadlineAlert';
+import { DashboardAnalyticsCharts } from './DashboardAnalyticsCharts';
 
 interface AdminDashboardViewProps {
   stats: BreweryStats;
@@ -277,7 +279,7 @@ export function AdminDashboardView({
     const pendingItems = suggestions.filter(s => s.status === 'PENDING');
     const grouped = new Map<BreweryProcess, { sum: number; count: number }>();
 
-    (Object.keys(PROCESS_CONFIG) as BreweryProcess[]).forEach(proc => {
+    PROCESS_ORDER.forEach(proc => {
       grouped.set(proc, { sum: 0, count: 0 });
     });
 
@@ -289,11 +291,11 @@ export function AdminDashboardView({
       grouped.set(s.process, cur);
     });
 
-    return (Object.keys(PROCESS_CONFIG) as BreweryProcess[])
+    return PROCESS_ORDER
       .map(proc => {
         const stat = grouped.get(proc) || { sum: 0, count: 0 };
         const avgScore = stat.count > 0 ? Number((stat.sum / stat.count).toFixed(1)) : 0;
-        const shortName = PROCESS_CONFIG[proc].label.split('(')[0];
+        const shortName = PROCESS_CONFIG[proc].shortLabel;
         const color =
           avgScore >= 80
             ? '#dc2626'
@@ -376,7 +378,7 @@ export function AdminDashboardView({
       return /^\d{4}-\d{2}-\d{2}$/.test(datePart) && datePart >= startStr && datePart <= endStr;
     });
 
-    const fieldWorkers = workers.filter(w => w.role === 'WORKER');
+    const fieldWorkers = workers.filter(w => w.role !== 'ADMIN');
     const workerStatsMap = new Map<
       string,
       {
@@ -421,7 +423,7 @@ export function AdminDashboardView({
     const allRows = Array.from(workerStatsMap.values())
       .map(entry => {
         const procMeta = PROCESS_CONFIG[entry.process];
-        const shortProc = procMeta ? procMeta.label.split('(')[0] : entry.process;
+        const shortProc = procMeta ? procMeta.shortLabel : entry.process;
         return {
           ...entry,
           processLabel: procMeta?.label || entry.process,
@@ -614,11 +616,11 @@ export function AdminDashboardView({
               F-06 관리 대시보드
             </span>
             <span className="text-xs text-slate-500 font-medium">
-              탁·약주 주류공장 실시간 통합 관제
+              양조2팀 제품공정 실시간 통합 관제
             </span>
           </div>
           <h2 className="text-2xl font-black text-slate-900 tracking-tight">
-            제품팀 & 공무/안전 통합 제안 관리
+            양조2팀 제품공정 통합 제안 관리
           </h2>
         </div>
 
@@ -764,7 +766,7 @@ export function AdminDashboardView({
         {/* KPI 1: 현장 27명 참여율 (PRD 100% 목표) */}
         <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-xs">
           <div className="flex items-center justify-between text-slate-500 text-xs font-bold mb-2">
-            <span>현장 직원 참여율 (27명)</span>
+            <span>현장 직원 참여율 ({workerMonthlyActivity.totalFieldWorkers}명)</span>
             <Users className="w-4 h-4 text-blue-600" />
           </div>
           <div className="flex items-baseline gap-2">
@@ -772,7 +774,7 @@ export function AdminDashboardView({
               {stats.workerParticipationRate}%
             </span>
             <span className="text-xs font-semibold text-slate-500">
-              ({stats.activeWorkersCount} / 27명 참여)
+              ({stats.activeWorkersCount} / {workerMonthlyActivity.totalFieldWorkers}명 참여)
             </span>
           </div>
           <div className="mt-3">
@@ -783,7 +785,7 @@ export function AdminDashboardView({
               />
             </div>
             <span className="text-[11px] text-slate-400 mt-1 block">
-              목표: 1개월 내 27명 전원 100% 최소 1회 제안
+              목표: 1개월 내 양조2팀 현장 전원 100% 최소 1회 제안
             </span>
           </div>
         </div>
@@ -794,16 +796,20 @@ export function AdminDashboardView({
             <span>총 등록 제안</span>
             <TrendingUp className="w-4 h-4 text-emerald-600" />
           </div>
-          <div className="flex items-baseline gap-2">
+          <div className="flex items-baseline gap-2 tabular-nums">
             <span className="text-3xl font-black text-slate-900">
               {stats.totalSuggestions}건
             </span>
-            <span className="text-xs font-semibold text-emerald-600 flex items-center">
-              <ArrowUpRight className="w-3.5 h-3.5" /> 전월대비 +38%
+            <span className="text-xs font-semibold text-emerald-700 flex items-center">
+              <ArrowUpRight className="w-3.5 h-3.5" /> 완료 {stats.statusCounts.COMPLETED}건
             </span>
           </div>
-          <p className="text-[11px] text-slate-400 mt-3">
-            완료 처리율: {Math.round((stats.statusCounts.COMPLETED / totalCatCount) * 100)}%
+          <p className="text-[11px] text-slate-500 mt-3 tabular-nums">
+            전체 완료 처리율:{' '}
+            {stats.totalSuggestions > 0
+              ? Math.round((stats.statusCounts.COMPLETED / stats.totalSuggestions) * 100)
+              : 0}
+            %
           </p>
         </div>
 
@@ -819,12 +825,12 @@ export function AdminDashboardView({
             </span>
             <AlertTriangle className={`w-4 h-4 ${urgentPendingCount > 0 ? 'text-rose-600' : 'text-slate-400'}`} />
           </div>
-          <div className="flex items-baseline gap-2">
+          <div className="flex items-baseline gap-2 tabular-nums">
             <span className={`text-3xl font-black ${urgentPendingCount > 0 ? 'text-rose-600' : 'text-slate-900'}`}>
               {urgentPendingCount}건
             </span>
             <span className="text-xs font-semibold text-slate-500">
-              즉시 조치 필요
+              {urgentPendingCount > 0 ? '즉시 조치 필요' : '긴급 대기 없음'}
             </span>
           </div>
           <p className="text-[11px] text-rose-700 mt-3">
@@ -832,25 +838,34 @@ export function AdminDashboardView({
           </p>
         </div>
 
-        {/* KPI 4: 평균 조치 리드타임 (30% 단축 목표) */}
+        {/* KPI 4: 평균 조치 리드타임 */}
         <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-xs">
           <div className="flex items-center justify-between text-slate-500 text-xs font-bold mb-2">
             <span>고장정비 평균 리드타임</span>
             <Clock className="w-4 h-4 text-indigo-600" />
           </div>
-          <div className="flex items-baseline gap-2">
+          <div className="flex items-baseline gap-2 tabular-nums">
             <span className="text-3xl font-black text-slate-900">
-              {stats.avgLeadTimeHours}시간
+              {stats.avgLeadTimeHours > 0 ? `${stats.avgLeadTimeHours}시간` : '-'}
             </span>
-            <span className="text-xs font-semibold text-emerald-600">
-              ▼ 32% 단축 달성
+            <span className="text-xs font-semibold text-slate-500">
+              {stats.avgLeadTimeHours > 0 ? '실측 평균' : '집계 대기'}
             </span>
           </div>
-          <p className="text-[11px] text-slate-400 mt-3">
-            기존 수기/구두 보고 5.6시간 ➔ 현재 3.8시간
+          <p className="text-[11px] text-slate-500 mt-3">
+            {stats.avgLeadTimeHours > 0
+              ? '완료 처리된 고장정비 건의 접수~완료 평균 소요 시간'
+              : '고장정비 완료 건이 누적되면 평균 리드타임이 자동 산출됩니다.'}
           </p>
         </div>
       </div>
+
+      {/* 1-2. 공정별 제안 처리율 막대 그래프 & 최근 6개월 월간 제안 추세 선 그래프 (Recharts) */}
+      <DashboardAnalyticsCharts
+        suggestions={suggestions}
+        selectedProcessFilter={filterProcess}
+        onSelectProcessFilter={setFilterProcess}
+      />
 
       {/* 2. 시각화 섹션: 일일 제안 접수량 라인 차트 & 4대 카테고리 비중 */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
@@ -976,7 +991,22 @@ export function AdminDashboardView({
           </div>
 
           <div className="p-3 bg-slate-50 rounded-xl border border-slate-200 text-[11px] text-slate-600 leading-relaxed">
-            💡 <strong>인사이트:</strong> 발효조 교반기 및 병입기 중심의 고장정비 접수율이 가장 높으며, 위험성평가를 통한 아차사고 사전 차단 효과가 뚜렷합니다.
+            {stats.totalSuggestions === 0 ? (
+              <span>제안이 등록되면 4대 카테고리별 접수 비중이 실시간으로 집계됩니다.</span>
+            ) : (
+              (() => {
+                const topCategory = (
+                  ['BREAKDOWN_REPAIR', 'RISK_ASSESSMENT', 'PROCESS_IMPROVEMENT', 'PREVENTIVE_MAINT'] as SuggestionCategory[]
+                ).sort((a, b) => (stats.categoryCounts[b] || 0) - (stats.categoryCounts[a] || 0))[0];
+                const topCount = stats.categoryCounts[topCategory] || 0;
+                const topPct = catPercentages[topCategory] || 0;
+                return (
+                  <span className="tabular-nums">
+                    <strong>최다 유형:</strong> {CATEGORY_CONFIG[topCategory].shortLabel} ({topCount}건 · {topPct}%)
+                  </span>
+                );
+              })()
+            )}
           </div>
         </div>
       </div>
@@ -1000,48 +1030,54 @@ export function AdminDashboardView({
             </span>
           </div>
 
-          <div className="w-full h-[200px]">
-            <ResponsiveContainer width="100%" height="100%">
-              <RechartsPieChart>
-                <Pie
-                  data={priorityDistributionData.filter(d => d.value > 0)}
-                  dataKey="value"
-                  nameKey="name"
-                  cx="50%"
-                  cy="50%"
-                  innerRadius={48}
-                  outerRadius={78}
-                  paddingAngle={3}
-                  stroke="#ffffff"
-                  strokeWidth={2}
-                >
-                  {priorityDistributionData
-                    .filter(d => d.value > 0)
-                    .map(entry => (
-                      <Cell key={entry.key} fill={entry.color} />
-                    ))}
-                </Pie>
-                <Tooltip
-                  contentStyle={{
-                    backgroundColor: '#0f172a',
-                    border: '1px solid #334155',
-                    borderRadius: '12px',
-                    color: '#f8fafc',
-                    fontSize: '12px',
-                  }}
-                  itemStyle={{ color: '#f8fafc', fontWeight: 700 }}
-                  formatter={(value, name) => {
-                    const count = Number(value ?? 0);
-                    const pct =
-                      suggestions.length > 0
-                        ? Math.round((count / suggestions.length) * 100)
-                        : 0;
-                    return [`${count}건 (${pct}%)`, String(name ?? '')];
-                  }}
-                />
-              </RechartsPieChart>
-            </ResponsiveContainer>
-          </div>
+          {suggestions.length === 0 ? (
+            <div className="h-[200px] flex items-center justify-center rounded-xl bg-slate-50 border border-dashed border-slate-200 text-xs text-slate-400 text-center px-4">
+              등록된 제안이 없어 우선순위 분포를 집계 대기 중입니다.
+            </div>
+          ) : (
+            <div className="w-full h-[200px]">
+              <ResponsiveContainer width="100%" height="100%">
+                <RechartsPieChart>
+                  <Pie
+                    data={priorityDistributionData.filter(d => d.value > 0)}
+                    dataKey="value"
+                    nameKey="name"
+                    cx="50%"
+                    cy="50%"
+                    innerRadius={48}
+                    outerRadius={78}
+                    paddingAngle={3}
+                    stroke="#ffffff"
+                    strokeWidth={2}
+                  >
+                    {priorityDistributionData
+                      .filter(d => d.value > 0)
+                      .map(entry => (
+                        <Cell key={entry.key} fill={entry.color} />
+                      ))}
+                  </Pie>
+                  <Tooltip
+                    contentStyle={{
+                      backgroundColor: '#0f172a',
+                      border: '1px solid #334155',
+                      borderRadius: '12px',
+                      color: '#f8fafc',
+                      fontSize: '12px',
+                    }}
+                    itemStyle={{ color: '#f8fafc', fontWeight: 700 }}
+                    formatter={(value, name) => {
+                      const count = Number(value ?? 0);
+                      const pct =
+                        suggestions.length > 0
+                          ? Math.round((count / suggestions.length) * 100)
+                          : 0;
+                      return [`${count}건 (${pct}%)`, String(name ?? '')];
+                    }}
+                  />
+                </RechartsPieChart>
+              </ResponsiveContainer>
+            </div>
+          )}
 
           <div className="space-y-2 pt-1 border-t border-slate-100">
             {priorityDistributionData.map(bucket => (
@@ -1081,7 +1117,7 @@ export function AdminDashboardView({
               </p>
             </div>
             <span className="text-xs font-bold text-blue-600 bg-blue-50 px-2.5 py-1 rounded-lg border border-blue-200">
-              27명 전원 추적중
+              현장 {workerMonthlyActivity.totalFieldWorkers}명 추적중
             </span>
           </div>
 
@@ -1098,31 +1134,39 @@ export function AdminDashboardView({
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100 font-medium">
-                {stats.topSuggesters.map((item, index) => (
-                  <tr key={item.workerId} className="hover:bg-slate-50/80 transition-colors">
-                    <td className="py-2.5 px-3 font-bold">
-                      {index === 0 && <span className="inline-block w-5 h-5 rounded-full bg-amber-400 text-amber-950 text-center font-extrabold text-[11px] leading-5">1</span>}
-                      {index === 1 && <span className="inline-block w-5 h-5 rounded-full bg-slate-300 text-slate-800 text-center font-extrabold text-[11px] leading-5">2</span>}
-                      {index === 2 && <span className="inline-block w-5 h-5 rounded-full bg-amber-700 text-white text-center font-extrabold text-[11px] leading-5">3</span>}
-                      {index > 2 && <span className="text-slate-400 ml-1.5">{index + 1}</span>}
-                    </td>
-                    <td className="py-2.5 px-3 font-bold text-slate-800">
-                      {item.name} <span className="text-slate-400 font-normal">({item.workerId})</span>
-                    </td>
-                    <td className="py-2.5 px-3 text-slate-600">
-                      {PROCESS_CONFIG[item.process]?.icon} {PROCESS_CONFIG[item.process]?.label}
-                    </td>
-                    <td className="py-2.5 px-3 text-center font-bold text-blue-600">
-                      {item.count}건
-                    </td>
-                    <td className="py-2.5 px-3 text-center font-bold text-emerald-600">
-                      {item.adoptedCount}건
-                    </td>
-                    <td className="py-2.5 px-3 text-right font-black text-slate-900">
-                      {item.count * 10 + item.adoptedCount * 50}점
+                {stats.topSuggesters.length === 0 ? (
+                  <tr>
+                    <td colSpan={6} className="py-10 text-center text-slate-400">
+                      등록된 현장 직원 또는 제안 데이터가 없습니다.
                     </td>
                   </tr>
-                ))}
+                ) : (
+                  stats.topSuggesters.map((item, index) => (
+                    <tr key={item.workerId} className="hover:bg-slate-50/80 transition-colors">
+                      <td className="py-2.5 px-3 font-bold">
+                        {index === 0 && <span className="inline-block w-5 h-5 rounded-full bg-amber-400 text-amber-950 text-center font-extrabold text-[11px] leading-5">1</span>}
+                        {index === 1 && <span className="inline-block w-5 h-5 rounded-full bg-slate-300 text-slate-800 text-center font-extrabold text-[11px] leading-5">2</span>}
+                        {index === 2 && <span className="inline-block w-5 h-5 rounded-full bg-amber-700 text-white text-center font-extrabold text-[11px] leading-5">3</span>}
+                        {index > 2 && <span className="text-slate-400 ml-1.5">{index + 1}</span>}
+                      </td>
+                      <td className="py-2.5 px-3 font-bold text-slate-800">
+                        {item.name} <span className="text-slate-400 font-normal">({item.workerId})</span>
+                      </td>
+                      <td className="py-2.5 px-3 text-slate-600">
+                        {PROCESS_CONFIG[item.process]?.icon} {PROCESS_CONFIG[item.process]?.label}
+                      </td>
+                      <td className="py-2.5 px-3 text-center font-bold text-blue-600 tabular-nums">
+                        {item.count}건
+                      </td>
+                      <td className="py-2.5 px-3 text-center font-bold text-emerald-600 tabular-nums">
+                        {item.adoptedCount}건
+                      </td>
+                      <td className="py-2.5 px-3 text-right font-black text-slate-900 tabular-nums">
+                        {item.count * 10 + item.adoptedCount * 50}점
+                      </td>
+                    </tr>
+                  ))
+                )}
               </tbody>
             </table>
           </div>
@@ -1291,9 +1335,9 @@ export function AdminDashboardView({
               className="h-8 px-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-semibold text-slate-700 outline-none"
             >
               <option value="ALL">전체 공정</option>
-              {Object.entries(PROCESS_CONFIG).map(([k, v]) => (
+              {PROCESS_ORDER.map(k => (
                 <option key={k} value={k}>
-                  {v.icon} {v.label.split('(')[0]}
+                  {PROCESS_CONFIG[k].icon} {PROCESS_CONFIG[k].label}
                 </option>
               ))}
             </select>
@@ -1416,7 +1460,7 @@ export function AdminDashboardView({
                 </span>
               </div>
               <p className="text-[11px] text-slate-500 mt-1">
-                산정 기준: <strong>긴급도</strong>(50점/0점) + <strong>카테고리 심각도</strong>(위험 40 · 고장 30 · 예방 20 · 개선 10) + <strong>공정 영향도</strong>(병입 10 · 발효 9 · 여과 7 · 담금 6 · 제국 5 · 제성 4 · 기타 2)
+                산정 기준: <strong>긴급도</strong>(50점/0점) + <strong>카테고리 심각도</strong>(위험 40 · 고장 30 · 예방 20 · 개선 10) + <strong>공정 영향도</strong>(RFC 10 · 검사 9 · 라벨러/파트장/반장 8 · 포장기/관리자 7 · DP 6)
               </p>
             </div>
             
@@ -1566,10 +1610,10 @@ export function AdminDashboardView({
                 onChange={e => setFilterProcess(e.target.value)}
                 className="h-9 px-3 bg-slate-50 border border-slate-200 rounded-xl text-xs font-semibold text-slate-700 outline-none"
               >
-                <option value="ALL">전체 공정 (제국~병입)</option>
-                {Object.entries(PROCESS_CONFIG).map(([k, v]) => (
+                <option value="ALL">전체 공정 (양조2팀 제품공정)</option>
+                {PROCESS_ORDER.map(k => (
                   <option key={k} value={k}>
-                    {v.icon} {v.label} (중요도 {PROCESS_IMPORTANCE_SCORES[k as BreweryProcess]?.score}점)
+                    {PROCESS_CONFIG[k].icon} {PROCESS_CONFIG[k].label} (중요도 {PROCESS_IMPORTANCE_SCORES[k]?.score}점)
                   </option>
                 ))}
               </select>

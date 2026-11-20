@@ -40,13 +40,13 @@
         },
         "process": {
           "type": "string",
-          "enum": ["MALTING", "MASHING", "FERMENTATION", "FILTRATION", "REFINING", "BOTTLING", "OTHER"],
-          "description": "Assigned brewery manufacturing process."
+          "enum": ["DEPALLETIZER", "RFC", "LABELER", "PACKER", "INSPECTION", "PART_LEADER", "TEAM_LEADER", "ADMIN"],
+          "description": "Assigned 양조2팀 제품공정 station or role group (DP, RFC, 라벨러, 포장기, 검사, 파트장, 반장, 관리자)."
         },
         "role": {
           "type": "string",
-          "enum": ["WORKER", "ADMIN", "MAINTENANCE"],
-          "description": "RBAC role (non-admins can only register as WORKER)."
+          "enum": ["WORKER", "PART_LEADER", "TEAM_LEADER", "ADMIN"],
+          "description": "Job title and RBAC role (일반 담당, 파트장, 반장, 관리자; non-admins cannot self-assign ADMIN)."
         },
         "isFirstLogin": {
           "type": "boolean",
@@ -123,8 +123,8 @@
         },
         "process": {
           "type": "string",
-          "enum": ["MALTING", "MASHING", "FERMENTATION", "FILTRATION", "REFINING", "BOTTLING", "OTHER"],
-          "description": "Brewery manufacturing process."
+          "enum": ["DEPALLETIZER", "RFC", "LABELER", "PACKER", "INSPECTION", "PART_LEADER", "TEAM_LEADER", "ADMIN"],
+          "description": "양조2팀 제품공정 station (DP, RFC, 라벨러, 포장기, 검사, 파트장, 반장, 관리자)."
         },
         "locationDetail": {
           "type": "string",
@@ -147,8 +147,8 @@
         },
         "authorProcess": {
           "type": "string",
-          "enum": ["MALTING", "MASHING", "FERMENTATION", "FILTRATION", "REFINING", "BOTTLING", "OTHER"],
-          "description": "Author's primary brewery process."
+          "enum": ["DEPALLETIZER", "RFC", "LABELER", "PACKER", "INSPECTION", "PART_LEADER", "TEAM_LEADER", "ADMIN"],
+          "description": "Author's primary 양조2팀 제품공정 station."
         },
         "status": {
           "type": "string",

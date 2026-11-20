@@ -11,11 +11,11 @@ import {
   where,
 } from 'firebase/firestore';
 import {
-  BreweryProcess,
   Suggestion,
   SuggestionCategory,
   SuggestionStatus,
 } from '../../types/brewery';
+import { normalizeProcess } from '../../data/mockBreweryData';
 import { calculatePriorityScore } from '../breweryStore';
 import { enrichSuggestionWithPriority } from '../priorityScore';
 import { OperationType, db, handleFirestoreError } from './client';
@@ -104,11 +104,11 @@ export function subscribeFirestoreSuggestions(
             title: typeof data.title === 'string' ? data.title : '',
             description: typeof data.description === 'string' ? data.description : '',
             category: (data.category as SuggestionCategory) || 'PROCESS_IMPROVEMENT',
-            process: (data.process as BreweryProcess) || 'OTHER',
+            process: normalizeProcess(data.process),
             locationDetail: typeof data.locationDetail === 'string' ? data.locationDetail : '',
             authorId: typeof data.authorId === 'string' ? data.authorId : user.uid,
             authorName: typeof data.authorName === 'string' ? data.authorName : '현장 작업자',
-            authorProcess: (data.authorProcess as BreweryProcess) || 'OTHER',
+            authorProcess: normalizeProcess(data.authorProcess),
             status: (data.status as SuggestionStatus) || 'PENDING',
             isUrgent: Boolean(data.isUrgent),
             urgencyReason: typeof data.urgencyReason === 'string' ? data.urgencyReason : undefined,
@@ -163,10 +163,12 @@ export async function createSuggestionInFirestore(
   const safeId = sanitizeId(suggestion.id, 'SUG');
   const docPath = `suggestions/${safeId}`;
   const isAdmin = isBootstrappedAdminUser(user);
+  const safeProcess = normalizeProcess(suggestion.process);
+  const safeAuthorProcess = normalizeProcess(suggestion.authorProcess);
   const priorityScore = calculatePriorityScore({
     isUrgent: suggestion.isUrgent,
     category: suggestion.category,
-    process: suggestion.process,
+    process: safeProcess,
   });
 
   const payload: Record<string, unknown> = {
@@ -175,11 +177,11 @@ export async function createSuggestionInFirestore(
     title: clampString(suggestion.title, MAX_TITLE_LENGTH) || '현장 제안',
     description: clampString(suggestion.description, MAX_DESCRIPTION_LENGTH) || '상세 내용 없음',
     category: suggestion.category,
-    process: suggestion.process,
+    process: safeProcess,
     locationDetail: clampString(suggestion.locationDetail, MAX_LOCATION_LENGTH),
     authorId: sanitizeId(suggestion.authorId || user.uid, 'W').slice(0, MAX_AUTHOR_ID_LENGTH),
     authorName: clampString(suggestion.authorName, MAX_AUTHOR_NAME_LENGTH) || '현장 작업자',
-    authorProcess: suggestion.authorProcess,
+    authorProcess: safeAuthorProcess,
     status: isAdmin ? suggestion.status : 'PENDING',
     isUrgent: Boolean(suggestion.isUrgent),
     priorityScore,

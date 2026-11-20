@@ -23,6 +23,7 @@ import {
 import { 
   CATEGORY_CONFIG, 
   PROCESS_CONFIG, 
+  PROCESS_ORDER,
   QUICK_ISSUE_CHECKLISTS 
 } from '../data/mockBreweryData';
 import {
@@ -59,7 +60,7 @@ export function NewSuggestionModal({
   isOffline,
 }: NewSuggestionModalProps) {
   const [category, setCategory] = useState<SuggestionCategory>('BREAKDOWN_REPAIR');
-  const [process, setProcess] = useState<BreweryProcess>(currentUser.process || 'FERMENTATION');
+  const [process, setProcess] = useState<BreweryProcess>(currentUser.process || 'RFC');
   const [locationDetail, setLocationDetail] = useState('');
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
@@ -67,6 +68,7 @@ export function NewSuggestionModal({
   const [isRecording, setIsRecording] = useState(false);
   const [audioTranscript, setAudioTranscript] = useState('');
   const [selectedQuickTags, setSelectedQuickTags] = useState<string[]>([]);
+  const [formError, setFormError] = useState<string | null>(null);
 
   const isUrgent = CATEGORY_CONFIG[category].isUrgentDefault;
 
@@ -130,10 +132,10 @@ export function NewSuggestionModal({
   const simulateVoice = () => {
     setTimeout(() => {
       const voiceSamples: Record<SuggestionCategory, string> = {
-        BREAKDOWN_REPAIR: '3호 발효조 상부 교반기 모터가 과열되면서 멈췄습니다. 탄 냄새가 나고 온도가 계속 올라가고 있습니다.',
-        RISK_ASSESSMENT: '여과실 배수로 덮개가 틀어져서 작업화가 걸려 넘어질 뻔했습니다. 바닥에 세척수가 고여 미끄럽습니다.',
-        PROCESS_IMPROVEMENT: '원료 쌀 침지 후 탈수 시간을 10분 단축할 수 있는 타이머 알람을 설치하면 좋겠습니다.',
-        PREVENTIVE_MAINT: '2호 제성탱크 배관 연결부 가스켓에서 미세 누수 흔적이 보입니다. 다음 주말 교체 바랍니다.',
+        BREAKDOWN_REPAIR: 'RFC 로터리 타전 헤드 3번에서 토크 불량 알람이 뜨면서 라인이 정지했습니다. 캡 공급 슈트 확인이 필요합니다.',
+        RISK_ASSESSMENT: 'Depalletizer 공병 투입구 바닥에 파손된 유리 조각과 세척수가 고여 미끄럽습니다. 작업자 전도 위험이 있습니다.',
+        PROCESS_IMPROVEMENT: '라벨러 품목 전환 시 가이드 조정 눈금자를 컬러 마킹하면 셋업 시간을 10분 이상 단축할 수 있습니다.',
+        PREVENTIVE_MAINT: '포장기 케이스 실러 공압 실린더 연결부에서 미세 에어가 새는 소리가 납니다. 다음 점검 시 패킹 교체 바랍니다.',
       };
       const text = voiceSamples[category];
       setAudioTranscript(text);
@@ -148,9 +150,10 @@ export function NewSuggestionModal({
   // 사진 촬영 / 첨부 시뮬레이션
   const handleAddPhoto = () => {
     if (attachments.length >= 3) {
-      alert('첨부파일은 최대 3장까지 등록 가능합니다.');
+      setFormError('첨부파일은 최대 3장까지 등록 가능합니다.');
       return;
     }
+    setFormError(null);
 
     const sampleImages = [
       {
@@ -181,14 +184,16 @@ export function NewSuggestionModal({
 
   const handleRemovePhoto = (id: string) => {
     setAttachments(prev => prev.filter(a => a.id !== id));
+    setFormError(null);
   };
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!title.trim() && !description.trim()) {
-      alert('제목 또는 상세 내용을 입력해 주세요.');
+      setFormError('제목 또는 상세 내용을 입력해 주세요.');
       return;
     }
+    setFormError(null);
 
     onSubmit({
       title: title.trim() || description.substring(0, 35),
@@ -233,6 +238,15 @@ export function NewSuggestionModal({
 
         {/* 폼 본문 */}
         <form onSubmit={handleSubmit} className="p-4 sm:p-6 overflow-y-auto space-y-5">
+          {formError && (
+            <div
+              role="alert"
+              className="p-3 rounded-xl bg-rose-50 border border-rose-200 text-rose-800 text-xs font-semibold flex items-center gap-2"
+            >
+              <AlertTriangle className="w-4 h-4 text-rose-600 shrink-0" />
+              <span>{formError}</span>
+            </div>
+          )}
           {/* 1. 제안 유형 (4대 카테고리 라디오 버튼 - 장갑 착용 친화적 대형 버튼) */}
           <div>
             <label className="block text-xs font-bold text-slate-700 mb-2">
@@ -278,7 +292,7 @@ export function NewSuggestionModal({
               <div className="mt-2.5 p-3 rounded-xl bg-rose-50 border border-rose-200 text-xs text-rose-800 flex items-center gap-2">
                 <AlertTriangle className="w-4 h-4 text-rose-600 shrink-0" />
                 <span>
-                  <strong>F-03 긴급 알림:</strong> 등록 즉시 제품팀 관리자 및 공무/안전팀에 Push 알림이 전송됩니다.
+                  <strong>F-03 긴급 알림:</strong> 등록 즉시 양조2팀 관리자·반장·파트장에게 Push 알림이 전송됩니다.
                 </span>
               </div>
             )}
@@ -288,18 +302,21 @@ export function NewSuggestionModal({
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <div>
               <label className="block text-xs font-bold text-slate-700 mb-1.5">
-                2. 공정 선택 <span className="text-rose-500">*</span>
+                2. 담당 공정 선택 <span className="text-rose-500">*</span>
               </label>
               <select
                 value={process}
                 onChange={e => setProcess(e.target.value as BreweryProcess)}
                 className="w-full h-12 px-3 rounded-xl border border-slate-300 bg-white font-semibold text-slate-800 text-sm focus:ring-2 focus:ring-blue-500 outline-none"
               >
-                {Object.entries(PROCESS_CONFIG).map(([key, cfg]) => (
-                  <option key={key} value={key}>
-                    {cfg.icon} {cfg.label} (중요도 +{PROCESS_IMPORTANCE_SCORES[key as BreweryProcess]?.score}점)
-                  </option>
-                ))}
+                {PROCESS_ORDER.map(key => {
+                  const cfg = PROCESS_CONFIG[key];
+                  return (
+                    <option key={key} value={key}>
+                      {cfg.icon} {cfg.label} (중요도 +{PROCESS_IMPORTANCE_SCORES[key]?.score}점)
+                    </option>
+                  );
+                })}
               </select>
             </div>
 
@@ -309,7 +326,7 @@ export function NewSuggestionModal({
               </label>
               <input
                 type="text"
-                placeholder="예: 3호 발효조 상부 교반기, 병입 2라인"
+                placeholder="예: RFC 1호기 로터리 타전기, 라벨러 1라인"
                 value={locationDetail}
                 onChange={e => setLocationDetail(e.target.value)}
                 className="w-full h-12 px-3 rounded-xl border border-slate-300 bg-white text-slate-800 text-sm focus:ring-2 focus:ring-blue-500 outline-none"

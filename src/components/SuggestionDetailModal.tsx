@@ -27,6 +27,7 @@ import {
 import { 
   CATEGORY_CONFIG, 
   PROCESS_CONFIG, 
+  ROLE_CONFIG,
   STATUS_CONFIG 
 } from '../data/mockBreweryData';
 import {
@@ -89,8 +90,13 @@ export function SuggestionDetailModal({
   onToggleDeadlineAlert,
   onTriggerDeadlineTestAlert,
 }: SuggestionDetailModalProps) {
+  const assignableLeaders = workers.filter(w => w.role !== 'WORKER');
+  const fallbackAssigneeId = assignableLeaders[0]?.id || workers[0]?.id || 'ADMIN01';
+
   const [selectedStatus, setSelectedStatus] = useState<SuggestionStatus>(suggestion?.status || 'PENDING');
-  const [assignedWorkerId, setAssignedWorkerId] = useState<string>(suggestion?.assignedToId || 'SAFETY01');
+  const [assignedWorkerId, setAssignedWorkerId] = useState<string>(
+    suggestion?.assignedToId || fallbackAssigneeId
+  );
   const [dueDate, setDueDate] = useState<string>(
     suggestion?.dueDate || new Date(Date.now() + 86400000 * 3).toISOString().split('T')[0]
   );
@@ -103,14 +109,14 @@ export function SuggestionDetailModal({
   useEffect(() => {
     if (suggestion) {
       setSelectedStatus(suggestion.status);
-      setAssignedWorkerId(suggestion.assignedToId || 'SAFETY01');
+      setAssignedWorkerId(suggestion.assignedToId || fallbackAssigneeId);
       setDueDate(
         suggestion.dueDate || new Date(Date.now() + 86400000 * 3).toISOString().split('T')[0]
       );
       setFeedbackComment('');
       setNotifPermission(getBrowserNotificationPermission());
     }
-  }, [suggestion]);
+  }, [suggestion, fallbackAssigneeId]);
 
   if (!isOpen || !suggestion) return null;
 
@@ -127,9 +133,12 @@ export function SuggestionDetailModal({
   const currentStatusMeta = STATUS_CONFIG[suggestion.status];
   const deadlineInfo = getDeadlineAlertInfo(suggestion);
 
-  // 관리자 또는 공무팀 권한 여부 (또는 관리자 대시보드 화면에서 조회 중일 때 알림 토글 허용)
-  const isAdminOrMaintenance = currentUser.role === 'ADMIN' || currentUser.role === 'MAINTENANCE';
-  const canConfigureDeadlineAlert = isAdminOrMaintenance || isAdminView;
+  // 관리자·반장·파트장 권한 여부 (또는 관리자 대시보드 화면에서 조회 중일 때 알림 토글 허용)
+  const isAdminOrLeader =
+    currentUser.role === 'ADMIN' ||
+    currentUser.role === 'TEAM_LEADER' ||
+    currentUser.role === 'PART_LEADER';
+  const canConfigureDeadlineAlert = isAdminOrLeader || isAdminView;
 
   const handleToggleAlertSwitch = async () => {
     const nextEnabled = !deadlineInfo.isEnabled;
@@ -217,7 +226,7 @@ export function SuggestionDetailModal({
               <AlertTriangle className="w-5 h-5 text-rose-600 shrink-0 mt-0.5" />
               <div>
                 <h4 className="font-bold text-rose-900 text-sm">
-                  F-03 긴급 조치 대상 (관리자 & 공무팀 Push 발송 완료)
+                  F-03 긴급 조치 대상 (관리자·반장·파트장 Push 발송 완료)
                 </h4>
                 <p className="text-xs text-rose-700 mt-0.5">
                   {suggestion.urgencyReason || '고장 또는 안전 아차사고 요인으로 우선 대응이 필요합니다.'}
@@ -448,7 +457,7 @@ export function SuggestionDetailModal({
                       <option value={3}>마감 3일 전 (D-3)</option>
                     </select>
 
-                    {(!suggestion.dueDate || !isAdminOrMaintenance) && (
+                    {(!suggestion.dueDate || !isAdminOrLeader) && (
                       <div className="flex items-center gap-1.5">
                         <span className="text-slate-500">마감일:</span>
                         <input
@@ -526,12 +535,12 @@ export function SuggestionDetailModal({
             )}
           </div>
 
-          {/* F-05 관리자/공무팀 전용 상태 변경 및 할당 폼 */}
-          {isAdminOrMaintenance && (
+          {/* F-05 관리자·반장·파트장 전용 상태 변경 및 할당 폼 */}
+          {isAdminOrLeader && (
             <form onSubmit={handleSaveAction} className="p-4 rounded-xl bg-amber-50/60 border border-amber-200 space-y-3">
               <div className="flex items-center gap-2 text-xs font-bold text-amber-900">
                 <ShieldCheck className="w-4 h-4 text-amber-700" />
-                <span>관리자 권한: 상태 검토 & 실무 담당자 지정</span>
+                <span>관리자·리더 권한: 상태 검토 & 실무 담당자 지정</span>
               </div>
 
               {/* 상태 선택 탭 */}
@@ -572,14 +581,21 @@ export function SuggestionDetailModal({
                     onChange={e => setAssignedWorkerId(e.target.value)}
                     className="w-full h-10 px-2.5 bg-white border border-slate-300 rounded-lg font-medium text-slate-800 outline-none"
                   >
-                    <option value="SAFETY01">이공무 과장 (공무/안전팀)</option>
-                    <option value="ADMIN01">김상우 팀장 (제품팀 관리자)</option>
-                    <optgroup label="공정별 반장">
-                      {workers.filter(w => w.name.includes('반장')).map(w => (
+                    <optgroup label="파트장 · 반장 · 관리자">
+                      {assignableLeaders.map(w => (
                         <option key={w.id} value={w.id}>
-                          {w.name} ({PROCESS_CONFIG[w.process]?.label})
+                          {w.name} ({ROLE_CONFIG[w.role]?.label} · {PROCESS_CONFIG[w.process]?.shortLabel})
                         </option>
                       ))}
+                    </optgroup>
+                    <optgroup label="공정별 일반 담당">
+                      {workers
+                        .filter(w => w.role === 'WORKER')
+                        .map(w => (
+                          <option key={w.id} value={w.id}>
+                            {w.name} ({PROCESS_CONFIG[w.process]?.label})
+                          </option>
+                        ))}
                     </optgroup>
                   </select>
                 </div>

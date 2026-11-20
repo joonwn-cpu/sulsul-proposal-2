@@ -6,13 +6,13 @@
  */
 
 export const FIRESTORE_SCHEMA_MARKDOWN = `### 1. Firebase Firestore DB 스키마 설계서
-**제품명**: 술술제안 (탁·약주 현장 스마트 제안관리 시스템)  
-**특징**: 4대 제안 카테고리(공정개선, 고장정비, 예방정비, 위험성평가) 및 27명 현장 작업자 + 관리자 권한 분리, 실시간 동기화 및 긴급 알림 트리거 최적화
+**제품명**: 술술제안 (양조2팀 제품공정 스마트 제안관리 시스템)  
+**특징**: 4대 제안 카테고리(공정개선, 고장정비, 예방정비, 위험성평가) 및 양조2팀 제품공정 8개 담당 공정(DP/RFC/라벨러/포장기/검사/파트장/반장/관리자)·4대 직책(일반 담당/파트장/반장/관리자) 권한 분리, 실시간 동기화 및 긴급 알림 트리거 최적화
 
 ---
 
 #### 📁 컬렉션 구조 요약 (Collections Overview)
-1. \`users\` : 27명 현장 직원 및 관리자/공무팀 계정 정보
+1. \`users\` : 양조2팀 제품공정 현장 직원 및 관리자·반장·파트장 계정 정보
 2. \`suggestions\` : 4대 카테고리 제안 본문 및 상태, 첨부파일 메타
 3. \`suggestions/{suggestionId}/comments\` : 제안별 관리자 피드백 및 조치 이력 (서브컬렉션)
 4. \`urgent_alerts\` : 고장정비/위험성평가 시 생성되는 실시간 푸시 트리거 큐
@@ -21,18 +21,19 @@ export const FIRESTORE_SCHEMA_MARKDOWN = `### 1. Firebase Firestore DB 스키마
 ---
 
 #### 1) \`users\` 컬렉션 (현장 작업자 & 관리자 정보)
-* **문서 ID (\`userId\`)**: 직원 고유 사번 (예: \`240101\`, \`ADMIN01\`)
+* **문서 ID (\`uid\`)**: Firebase Auth UID (사번 \`workerId\`: 숫자 4자리 예: \`1455\`, 초기 비밀번호 \`1111\`)
 
 \`\`\`typescript
 interface UserDocument {
-  userId: string;              // 사번 4~6자리 (Primary Key)
-  name: string;                // 성명 (예: "박제국", "최발효")
-  role: 'WORKER' | 'ADMIN' | 'MAINTENANCE'; // 권한 (현장작업자 / 제품팀관리자 / 공무안전팀)
-  process: 'MALTING' | 'MASHING' | 'FERMENTATION' | 'FILTRATION' | 'REFINING' | 'BOTTLING' | 'OTHER';
-                               // 주 담당 공정 (제국, 담금, 발효, 여과, 제성, 병입, 기타)
+  workerId: string;            // 사번 숫자 4자리 (예: "1455")
+  displayName: string;         // 성명 (예: "김민수", "이철수")
+  role: 'WORKER' | 'PART_LEADER' | 'TEAM_LEADER' | 'ADMIN';
+                               // 직책/권한 (일반 담당 / 파트장 / 반장 / 관리자)
+  process: 'DEPALLETIZER' | 'RFC' | 'LABELER' | 'PACKER' | 'INSPECTION' | 'PART_LEADER' | 'TEAM_LEADER' | 'ADMIN';
+                               // 담당 공정 (DP / RFC / 라벨러 / 포장기 / 검사 / 파트장 / 반장 / 관리자)
   phone: string;               // 비상 연락처 (예: "010-1234-5678")
   fcmToken?: string;           // 모바일 Push 알림용 FCM 디바이스 토큰
-  isFirstLogin: boolean;       // 최초 로그인 여부 (F-01: 초기 비밀번호 변경 강제 플래그)
+  isFirstLogin: boolean;       // 최초 로그인 여부 (F-01: 초기 비밀번호 1111 변경 강제 플래그)
   isActive: boolean;           // 재직 여부 (퇴사 시 즉시 false 전환하여 계정 비활성화)
   suggestionCount: number;     // 누적 등록 제안 수
   adoptedCount: number;        // 채택/완료된 제안 수
@@ -54,22 +55,23 @@ interface SuggestionDocument {
   
   // 4대 제안 카테고리 (F-02)
   category: 
-    | 'PROCESS_IMPROVEMENT'    // 공정개선 (발효 수율, CIP 시간 단축 등)
-    | 'BREAKDOWN_REPAIR'      // 고장정비 (교반기 정지, 센서 오작동 등 - 긴급)
-    | 'PREVENTIVE_MAINT'      // 예방정비 (배관 누수 징후, 필터 교체 주기 등)
-    | 'RISK_ASSESSMENT';      // 위험성평가 (미끄럼, 협착, 아차사고 요인 등 - 긴급)
+    | 'PROCESS_IMPROVEMENT'    // 공정개선 (라인 가동률, 품목 전환 시간 단축 등)
+    | 'BREAKDOWN_REPAIR'      // 고장정비 (RFC 정지, 라벨러·포장기 센서 오작동 등 - 긴급)
+    | 'PREVENTIVE_MAINT'      // 예방정비 (공압 실린더 누기, 벨트·가이드 교체 주기 등)
+    | 'RISK_ASSESSMENT';      // 위험성평가 (미끄럼, 협착, 유리병 비산, 아차사고 요인 등 - 긴급)
 
-  // 주류 제조 공정 (F-02)
+  // 양조2팀 제품공정 담당 공정 (F-02)
   process: 
-    | 'MALTING'               // 제국
-    | 'MASHING'               // 담금
-    | 'FERMENTATION'          // 발효
-    | 'FILTRATION'            // 여과
-    | 'REFINING'              // 제성
-    | 'BOTTLING'              // 병입
-    | 'OTHER';                // 기타
+    | 'DEPALLETIZER'          // DP
+    | 'RFC'                   // RFC
+    | 'LABELER'               // 라벨러
+    | 'PACKER'                // 포장기
+    | 'INSPECTION'            // 검사
+    | 'PART_LEADER'           // 파트장
+    | 'TEAM_LEADER'           // 반장
+    | 'ADMIN';                // 관리자
 
-  locationDetail: string;      // 현장 상세 위치 (예: "2호 발효조 상부 감속기", "병입 3라인 충진기")
+  locationDetail: string;      // 현장 상세 위치 (예: "RFC 1호기 로터리 타전기", "라벨러 1라인")
 
   // 작성자 정보 (F-01 연동)
   author: {
@@ -102,7 +104,7 @@ interface SuggestionDocument {
 
   // 관리자 검토 및 조치 할당 (F-05)
   assignedTo?: {
-    userId: string;            // 조치 담당자 사번 (공무팀/안전팀)
+    userId: string;            // 조치 담당자 사번 (관리자/반장/파트장)
     name: string;
     assignedAt: Timestamp;
   };
@@ -124,14 +126,14 @@ interface SuggestionDocument {
 ---
 
 #### 3) \`suggestions/{suggestionId}/comments\` 서브컬렉션
-* **목적**: 제안에 대한 관리자, 공무팀, 작업자 간의 조치 코멘트 및 상태 변경 이력 추적
+* **목적**: 제안에 대한 관리자, 반장, 파트장, 작업자 간의 조치 코멘트 및 상태 변경 이력 추적
 
 \`\`\`typescript
 interface CommentDocument {
   commentId: string;
   authorId: string;
   authorName: string;
-  authorRole: 'WORKER' | 'ADMIN' | 'MAINTENANCE';
+  authorRole: 'ADMIN' | 'TEAM_LEADER' | 'PART_LEADER' | 'WORKER';
   message: string;
   statusChange?: {
     from: string;
@@ -144,7 +146,7 @@ interface CommentDocument {
 ---
 
 #### 4) \`urgent_alerts\` 컬렉션 (Cloud Functions 트리거용)
-* **목적**: '고장정비' 또는 '위험성평가' 생성 시 즉각 Cloud Functions를 통해 관리자 및 공무팀 모바일 기기로 FCM Push 및 SMS 전송
+* **목적**: '고장정비' 또는 '위험성평가' 생성 시 즉각 Cloud Functions를 통해 관리자·반장·파트장 모바일 기기로 FCM Push 및 SMS 전송
 
 \`\`\`typescript
 interface UrgentAlertDocument {
@@ -154,7 +156,7 @@ interface UrgentAlertDocument {
   title: string;
   process: string;
   authorName: string;
-  targetRoles: ('ADMIN' | 'MAINTENANCE')[];
+  targetRoles: ('ADMIN' | 'TEAM_LEADER' | 'PART_LEADER')[];
   isSent: boolean;
   sentAt?: Timestamp;
   createdAt: Timestamp;
@@ -196,9 +198,9 @@ sul-sul-proposal/
 │   │   │
 │   │   ├── (auth)/               # 인증 모듈 (F-01)
 │   │   │   ├── login/
-│   │   │   │   └── page.tsx      # 사번(4~6자리) 간편 로그인 화면
+│   │   │   │   └── page.tsx      # 숫자 4자리 사번(예: 1455) + 4자리 이상 비밀번호 로그인
 │   │   │   └── reset-password/
-│   │   │       └── page.tsx      # 최초 로그인 시 비밀번호 강제 변경 화면
+│   │   │       └── page.tsx      # 최초 로그인 시 초기 비밀번호(1111) 변경 화면
 │   │   │
 │   │   ├── (worker)/             # [현장 작업자용 모바일 뷰]
 │   │   │   ├── layout.tsx        # 모바일 뷰포트 고정 헤더/하단 내비바
@@ -211,14 +213,14 @@ sul-sul-proposal/
 │   │   │   └── my/
 │   │   │       └── page.tsx      # 내가 등록한 제안 목록 및 포상 점수 확인
 │   │   │
-│   │   ├── (admin)/              # [관리자/공무팀용 웹 대시보드]
+│   │   ├── (admin)/              # [관리자·반장·파트장용 웹 대시보드]
 │   │   │   ├── layout.tsx        # 사이드바 관리자 레이아웃
 │   │   │   ├── dashboard/
-│   │   │   │   └── page.tsx      # F-06 통계 대시보드 (트렌드 그래프, 파이차트, 27명 랭킹)
+│   │   │   │   └── page.tsx      # F-06 통계 대시보드 (트렌드 그래프, 파이차트, 활동량)
 │   │   │   ├── manage/
 │   │   │   │   └── page.tsx      # F-05 제안 검토, 상태 변경, 담당자 지정 및 코멘트
 │   │   │   └── workers/
-│   │   │       └── page.tsx      # 27명 현장 작업자 계정 및 공정별 배치 관리
+│   │   │       └── page.tsx      # 양조2팀 제품공정 직원 계정 및 직책·공정 관리
 │   │   │
 │   │   └── api/                  # Next.js API Routes (Server Actions 또는 API)
 │   │       ├── urgent-alert/
@@ -230,7 +232,7 @@ sul-sul-proposal/
 │   │   ├── common/
 │   │   │   ├── CategoryBadge.tsx # 4대 카테고리 색상 뱃지
 │   │   │   ├── StatusBadge.tsx   # 대기/검토/조치/완료/반려 뱃지
-│   │   │   ├── ProcessIcon.tsx   # 제국, 담금, 발효, 여과, 제성, 병입 아이콘
+│   │   │   ├── ProcessIcon.tsx   # DP, RFC, 라벨러, 포장기, 검사, 파트장, 반장, 관리자 아이콘
 │   │   │   └── UrgentBanner.tsx  # 최상단 긴급 고장/위험 경보 토스트 배너
 │   │   │
 │   │   ├── worker/               # 현장 특화 UI (장갑 착용 UX)
@@ -353,7 +355,7 @@ export type SuggestionCategory =
   | 'RISK_ASSESSMENT';
 
 export type BreweryProcess = 
-  | 'MALTING' | 'MASHING' | 'FERMENTATION' | 'FILTRATION' | 'REFINING' | 'BOTTLING' | 'OTHER';
+  | 'DEPALLETIZER' | 'RFC' | 'LABELER' | 'PACKER' | 'INSPECTION' | 'PART_LEADER' | 'TEAM_LEADER' | 'ADMIN';
 
 export interface SuggestionItem {
   id: string;
@@ -384,13 +386,14 @@ const CATEGORY_META = {
 };
 
 const PROCESS_LABELS: Record<BreweryProcess, string> = {
-  MALTING: '제국(製麴)',
-  MASHING: '담금(仕込)',
-  FERMENTATION: '발효(醱酵)',
-  FILTRATION: '여과(濾過)',
-  REFINING: '제성(製成)',
-  BOTTLING: '병입(甁入)',
-  OTHER: '기타공정',
+  DEPALLETIZER: 'DP',
+  RFC: 'RFC',
+  LABELER: '라벨러',
+  PACKER: '포장기',
+  INSPECTION: '검사',
+  PART_LEADER: '파트장',
+  TEAM_LEADER: '반장',
+  ADMIN: '관리자',
 };
 
 const STATUS_LABELS = {
@@ -548,14 +551,15 @@ export default function SuggestionsMainPage() {
             onChange={(e) => setSelectedProcess(e.target.value)}
             className="bg-slate-50 border border-slate-200 rounded px-2 py-1 font-semibold text-slate-800 outline-none"
           >
-            <option value="ALL">전체 공정 (제국~병입)</option>
-            <option value="MALTING">제국(製麴)</option>
-            <option value="MASHING">담금(仕込)</option>
-            <option value="FERMENTATION">발효(醱酵)</option>
-            <option value="FILTRATION">여과(濾過)</option>
-            <option value="REFINING">제성(製成)</option>
-            <option value="BOTTLING">병입(甁入)</option>
-            <option value="OTHER">기타</option>
+            <option value="ALL">전체 공정 (양조2팀 제품공정)</option>
+            <option value="DEPALLETIZER">DP</option>
+            <option value="RFC">RFC</option>
+            <option value="LABELER">라벨러</option>
+            <option value="PACKER">포장기</option>
+            <option value="INSPECTION">검사</option>
+            <option value="PART_LEADER">파트장</option>
+            <option value="TEAM_LEADER">반장</option>
+            <option value="ADMIN">관리자</option>
           </select>
         </div>
 

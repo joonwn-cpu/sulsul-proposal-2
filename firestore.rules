@@ -56,10 +56,11 @@ service cloud.firestore {
       return id is string && id.size() >= 1 && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
     }
 
+    // 양조2팀 제품공정 담당 공정 (DP, RFC, 라벨러, 포장기, 검사, 파트장, 반장, 관리자)
     function isValidProcess(val) {
       return val is string
         && val.size() <= 32
-        && val in ['MALTING', 'MASHING', 'FERMENTATION', 'FILTRATION', 'REFINING', 'BOTTLING', 'OTHER'];
+        && val in ['DEPALLETIZER', 'RFC', 'LABELER', 'PACKER', 'INSPECTION', 'PART_LEADER', 'TEAM_LEADER', 'ADMIN'];
     }
 
     function isValidCategory(val) {
@@ -74,10 +75,11 @@ service cloud.firestore {
         && val in ['PENDING', 'REVIEWING', 'IN_PROGRESS', 'COMPLETED', 'REJECTED'];
     }
 
+    // 직책/권한: 일반 담당(WORKER), 파트장(PART_LEADER), 반장(TEAM_LEADER), 관리자(ADMIN)
     function isValidRole(val) {
       return val is string
         && val.size() <= 20
-        && val in ['WORKER', 'ADMIN', 'MAINTENANCE'];
+        && val in ['WORKER', 'PART_LEADER', 'TEAM_LEADER', 'ADMIN'];
     }
 
     function isValidDueDate(val) {
@@ -189,7 +191,11 @@ service cloud.firestore {
         && incoming().createdAt == request.time
         && incoming().updatedAt == request.time
         && (
-          (isOwner(userId) && incoming().role == 'WORKER' && incoming().email == request.auth.token.email)
+          (
+            isOwner(userId)
+            && incoming().role in ['WORKER', 'PART_LEADER', 'TEAM_LEADER']
+            && incoming().email == request.auth.token.email
+          )
           || isAdmin()
         );
 

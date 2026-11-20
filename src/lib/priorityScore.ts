@@ -5,7 +5,7 @@ import {
   Suggestion,
   SuggestionCategory,
 } from '../types/brewery';
-import { CATEGORY_CONFIG, PROCESS_CONFIG } from '../data/mockBreweryData';
+import { CATEGORY_CONFIG, PROCESS_CONFIG, normalizeProcess } from '../data/mockBreweryData';
 
 /**
  * 긴급도(isUrgent) 가중치: 긴급 50점 / 일반 0점
@@ -30,26 +30,28 @@ export const CATEGORY_SEVERITY_SCORES: Record<
 };
 
 /**
- * 공정 영향도 가중치 (최대 10점)
- * - 병입(BOTTLING): 10점 (최종 출하 병목 라인 및 유리병·살균 설비)
- * - 발효(FERMENTATION): 9점 (품온·미생물 관리 핵심 공정)
- * - 여과(FILTRATION): 7점 (고압 압착·규조토 필터 안전/수율)
- * - 담금(MASHING): 6점 (원료 증자·주모 품질 결정)
- * - 제국(MALTING): 5점 (누룩/입국 온·습도 배양)
- * - 제성(REFINING): 4점 (도수 보정 및 블렌딩 저장)
- * - 기타(OTHER): 2점 (공통 유틸리티 및 설비 지원)
+ * 양조2팀 제품공정 영향도 가중치 (6 ~ 10점)
+ * - RFC(RFC): 10점 (세병·충진·타전 핵심 병목 설비)
+ * - 검사(INSPECTION): 9점 (이물·액위·캡 품질 유출 차단)
+ * - 라벨러(LABELER): 8점 (라벨 부착 및 유통기한 날인 품질)
+ * - 파트장(PART_LEADER): 8점 (공정 설비·품질 연계 관리)
+ * - 반장(TEAM_LEADER): 8점 (현장 반 운영 및 라인 조율)
+ * - 포장기(PACKER): 7점 (케이스 패킹 및 출하 마감 라인)
+ * - 관리자(ADMIN): 7점 (공정 총괄 및 운영 개선)
+ * - DP(DEPALLETIZER): 6점 (공병 공급 및 초기 투입 라인)
  */
 export const PROCESS_IMPORTANCE_SCORES: Record<
   BreweryProcess,
   { score: number; reason: string }
 > = {
-  BOTTLING: { score: 10, reason: '출하 직결 병목 라인 및 살균·충진' },
-  FERMENTATION: { score: 9, reason: '발효 품온/오염 직결 핵심 공정' },
-  FILTRATION: { score: 7, reason: '고압 압착·여과 수율 및 바닥 안전' },
-  MASHING: { score: 6, reason: '주모·원료 증자 초기 품질 결정' },
-  MALTING: { score: 5, reason: '제국실 온·습도 배양 관리' },
-  REFINING: { score: 4, reason: '도수 보정 및 제성 저장 공정' },
-  OTHER: { score: 2, reason: '공통 유틸리티 및 설비 지원' },
+  RFC: { score: 10, reason: '세병·충진·타전 핵심 병목 설비' },
+  INSPECTION: { score: 9, reason: '이물·액위·캡 불량 유출 차단 핵심 검사' },
+  LABELER: { score: 8, reason: '라벨 부착 및 표시사항·날인 품질 관리' },
+  PACKER: { score: 7, reason: '자동 박싱·팔레타이징 출하 공정' },
+  DEPALLETIZER: { score: 6, reason: 'DP 공병 공급 및 초기 인피드 라인' },
+  PART_LEADER: { score: 8, reason: '파트장 공정 설비·품질 연계 관리' },
+  TEAM_LEADER: { score: 8, reason: '반장 현장 반 운영 및 라인 조율' },
+  ADMIN: { score: 7, reason: '관리자 공정 총괄 및 운영 개선' },
 };
 
 /**
@@ -86,17 +88,15 @@ export const PRIORITY_LEVEL_CONFIG: Record<
 };
 
 /**
- * 제안의 긴급도(isUrgent: 50), 카테고리 심각도(10~40), 공정 영향도(2~10)를 기반으로 우선순위 점수(0~100) 계산
+ * 제안의 긴급도(isUrgent: 50), 카테고리 심각도(10~40), 공정 영향도(6~10)를 기반으로 우선순위 점수(0~100) 계산
  */
 export function calculatePriorityBreakdown(input: {
   isUrgent: boolean;
   category: SuggestionCategory;
   process: BreweryProcess;
 }): PriorityBreakdown {
-  // 1. 긴급도 점수 (50점 또는 0점)
   const urgencyScore = input.isUrgent ? URGENCY_SCORE_WEIGHT : 0;
 
-  // 2. 카테고리 심각도 점수 (10 ~ 40점)
   const categoryInfo =
     CATEGORY_SEVERITY_SCORES[input.category] ||
     CATEGORY_SEVERITY_SCORES.PROCESS_IMPROVEMENT;
@@ -104,13 +104,12 @@ export function calculatePriorityBreakdown(input: {
   const categoryLabel =
     CATEGORY_CONFIG[input.category]?.shortLabel || input.category;
 
-  // 3. 공정 영향도 점수 (2 ~ 10점)
+  const safeProcess = normalizeProcess(input.process);
   const processInfo =
-    PROCESS_IMPORTANCE_SCORES[input.process] || PROCESS_IMPORTANCE_SCORES.OTHER;
+    PROCESS_IMPORTANCE_SCORES[safeProcess] || PROCESS_IMPORTANCE_SCORES.RFC;
   const processScore = processInfo.score;
-  const processLabel = PROCESS_CONFIG[input.process]?.label || input.process;
+  const processLabel = PROCESS_CONFIG[safeProcess]?.label || safeProcess;
 
-  // 4. 총점 및 등급 산정
   const totalScore = Math.min(100, urgencyScore + categoryScore + processScore);
 
   let level: PriorityLevel = 'LOW';
@@ -137,14 +136,18 @@ export function calculatePriorityBreakdown(input: {
  * 제안 객체에 최신 priorityScore 및 산정 내역 부여
  */
 export function enrichSuggestionWithPriority(suggestion: Suggestion): Suggestion {
+  const safeProcess = normalizeProcess(suggestion.process);
+  const safeAuthorProcess = normalizeProcess(suggestion.authorProcess);
   const breakdown = calculatePriorityBreakdown({
     isUrgent: suggestion.isUrgent,
     category: suggestion.category,
-    process: suggestion.process,
+    process: safeProcess,
   });
 
   return {
     ...suggestion,
+    process: safeProcess,
+    authorProcess: safeAuthorProcess,
     priorityScore: breakdown.totalScore,
     priorityBreakdown: breakdown,
   };
@@ -157,15 +160,12 @@ export type SuggestionSortMode =
 
 /**
  * 대시보드 제안 리스트 정렬 유틸리티
- * - PRIORITY_DESC (기본): priorityScore 높은 순 (동점 시 미완료 우선 -> 최신순)
- * - PRIORITY_ASC: priorityScore 낮은 순
- * - LATEST_DESC: 최신 등록순
  */
 export function sortSuggestions(
   list: Suggestion[],
   mode: SuggestionSortMode = 'PRIORITY_DESC'
 ): Suggestion[] {
-  const enriched = list.map((item) =>
+  const enriched = list.map(item =>
     item.priorityBreakdown && typeof item.priorityScore === 'number'
       ? item
       : enrichSuggestionWithPriority(item)
@@ -184,7 +184,6 @@ export function sortSuggestions(
       return b.createdAt.localeCompare(a.createdAt);
     }
 
-    // Default: PRIORITY_DESC
     if (scoreB !== scoreA) return scoreB - scoreA;
     const isDoneA = a.status === 'COMPLETED' || a.status === 'REJECTED' ? 1 : 0;
     const isDoneB = b.status === 'COMPLETED' || b.status === 'REJECTED' ? 1 : 0;

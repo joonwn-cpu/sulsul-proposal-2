@@ -10,9 +10,14 @@ import {
   ShieldAlert,
   UserPlus,
 } from 'lucide-react';
-import { BreweryProcess } from '../types/brewery';
-import { PROCESS_CONFIG } from '../data/mockBreweryData';
+import { BreweryProcess, UserRole } from '../types/brewery';
 import {
+  PROCESS_CONFIG,
+  PROCESS_ORDER,
+  ROLE_CONFIG,
+} from '../data/mockBreweryData';
+import {
+  DEFAULT_INITIAL_PASSWORD,
   EMPLOYEE_EMAIL_DOMAIN,
   MIN_PASSWORD_LENGTH,
   formatFirebaseAuthError,
@@ -28,14 +33,10 @@ interface EmployeeAuthScreenProps {
   onAuthSuccess?: () => void;
 }
 
-const PROCESS_OPTIONS: BreweryProcess[] = [
-  'MALTING',
-  'MASHING',
-  'FERMENTATION',
-  'FILTRATION',
-  'REFINING',
-  'BOTTLING',
-  'OTHER',
+const SELF_REGISTER_ROLES: Exclude<UserRole, 'ADMIN'>[] = [
+  'WORKER',
+  'PART_LEADER',
+  'TEAM_LEADER',
 ];
 
 export function EmployeeAuthScreen({
@@ -52,7 +53,8 @@ export function EmployeeAuthScreen({
   // 신규 직원 등록 상태
   const [regWorkerId, setRegWorkerId] = useState('');
   const [regDisplayName, setRegDisplayName] = useState('');
-  const [regProcess, setRegProcess] = useState<BreweryProcess>('FERMENTATION');
+  const [regRole, setRegRole] = useState<Exclude<UserRole, 'ADMIN'>>('WORKER');
+  const [regProcess, setRegProcess] = useState<BreweryProcess>('DEPALLETIZER');
   const [regPhone, setRegPhone] = useState('');
   const [regPassword, setRegPassword] = useState('');
   const [regPasswordConfirm, setRegPasswordConfirm] = useState('');
@@ -73,11 +75,11 @@ export function EmployeeAuthScreen({
 
     const normalized = normalizeWorkerId(loginWorkerId);
     if (!isValidWorkerId(normalized)) {
-      setErrorMessage('사번은 영문, 숫자, 하이픈(-), 밑줄(_) 조합 2~32자로 입력해 주세요.');
+      setErrorMessage('사번은 숫자 4자리로 입력해 주세요. (예: 1455)');
       return;
     }
     if (loginPassword.length < MIN_PASSWORD_LENGTH) {
-      setErrorMessage(`비밀번호는 최소 ${MIN_PASSWORD_LENGTH}자 이상 입력해 주세요.`);
+      setErrorMessage(`비밀번호는 최소 ${MIN_PASSWORD_LENGTH}자리 이상 입력해 주세요.`);
       return;
     }
 
@@ -98,15 +100,15 @@ export function EmployeeAuthScreen({
 
     const normalized = normalizeWorkerId(regWorkerId);
     if (!isValidWorkerId(normalized)) {
-      setErrorMessage('사번은 영문, 숫자, 하이픈(-), 밑줄(_) 조합 2~32자로 입력해 주세요.');
+      setErrorMessage('사번은 숫자 4자리로 입력해 주세요. (예: 1455)');
       return;
     }
     if (!regDisplayName.trim()) {
-      setErrorMessage('성명과 직급을 입력해 주세요. (예: 김민수 주임)');
+      setErrorMessage('성명을 입력해 주세요.');
       return;
     }
     if (regPassword.length < MIN_PASSWORD_LENGTH) {
-      setErrorMessage(`비밀번호는 최소 ${MIN_PASSWORD_LENGTH}자 이상으로 설정해야 합니다.`);
+      setErrorMessage(`비밀번호는 최소 ${MIN_PASSWORD_LENGTH}자리 이상으로 설정해야 합니다.`);
       return;
     }
     if (regPassword !== regPasswordConfirm) {
@@ -121,6 +123,7 @@ export function EmployeeAuthScreen({
         password: regPassword,
         displayName: regDisplayName.trim(),
         process: regProcess,
+        role: regRole,
         phone: regPhone.trim(),
       });
       onAuthSuccess?.();
@@ -147,7 +150,7 @@ export function EmployeeAuthScreen({
   const previewRegEmail =
     regWorkerId.trim() && isValidWorkerId(regWorkerId)
       ? workerIdToEmail(regWorkerId)
-      : `사번@${EMPLOYEE_EMAIL_DOMAIN}`;
+      : `1455@${EMPLOYEE_EMAIL_DOMAIN}`;
 
   return (
     <div className="min-h-screen bg-slate-100 flex items-center justify-center p-4 sm:p-6">
@@ -161,7 +164,7 @@ export function EmployeeAuthScreen({
               </div>
               <div>
                 <h1 className="text-xl font-black tracking-tight text-white">술술제안</h1>
-                <p className="text-xs text-slate-400">탁·약주 제조 현장 스마트 제안관리</p>
+                <p className="text-xs text-slate-400">양조2팀 제품공정 스마트 제안관리</p>
               </div>
             </div>
 
@@ -172,8 +175,8 @@ export function EmployeeAuthScreen({
                 현장 제안 시스템에 접속하세요
               </h2>
               <p className="text-sm text-slate-300 leading-relaxed">
-                제국·담금·발효·여과·제성·병입 전 공정 작업자와 관리자가 개인 사번 계정으로
-                제안 등록, 고장 긴급 신고, 조치 이력 관리를 실시간으로 기록합니다.
+                양조2팀 제품공정 작업자와 관리자가 개인 사번 계정으로 제안 등록, 고장 긴급 신고,
+                조치 이력 관리를 실시간으로 기록합니다.
               </p>
             </div>
 
@@ -181,9 +184,10 @@ export function EmployeeAuthScreen({
               <div className="flex items-start gap-3">
                 <KeyRound className="w-4 h-4 text-amber-400 shrink-0 mt-0.5" />
                 <div>
-                  <p className="font-semibold text-white">사번 기반 개별 인증</p>
+                  <p className="font-semibold text-white">사번(숫자 4자리) 개별 인증</p>
                   <p className="text-xs text-slate-400 mt-0.5 leading-relaxed">
-                    이메일 주소 없이 사번(예: <span className="font-mono text-slate-200">240301</span>)과
+                    이메일 주소 없이 숫자 4자리 사번(예:{' '}
+                    <span className="font-mono text-slate-200">1455</span>)과 4자리 이상
                     비밀번호만으로 즉시 로그인합니다.
                   </p>
                 </div>
@@ -194,7 +198,9 @@ export function EmployeeAuthScreen({
                 <div>
                   <p className="font-semibold text-white">최초 로그인 비밀번호 변경 (F-01)</p>
                   <p className="text-xs text-slate-400 mt-0.5 leading-relaxed">
-                    관리자가 발급한 초기 비밀번호로 첫 접속 시 개인 비밀번호 변경 안내가 자동 표시됩니다.
+                    관리자가 발급한 초기 비밀번호(기본{' '}
+                    <span className="font-mono text-slate-200">{DEFAULT_INITIAL_PASSWORD}</span>)로
+                    첫 접속 시 개인 비밀번호 변경 안내가 자동 표시됩니다.
                   </p>
                 </div>
               </div>
@@ -202,9 +208,10 @@ export function EmployeeAuthScreen({
               <div className="flex items-start gap-3">
                 <Building2 className="w-4 h-4 text-emerald-400 shrink-0 mt-0.5" />
                 <div>
-                  <p className="font-semibold text-white">실시간 Firestore 연동</p>
+                  <p className="font-semibold text-white">양조2팀 제품공정 실시간 연동</p>
                   <p className="text-xs text-slate-400 mt-0.5 leading-relaxed">
-                    작성한 제안과 담당자 배정, 처리 기한 알림 설정이 클라우드 데이터베이스에 안전하게 저장됩니다.
+                    DP·RFC·라벨러·포장기·검사 공정 제안과 조치 이력이 클라우드에 실시간
+                    저장됩니다.
                   </p>
                 </div>
               </div>
@@ -265,17 +272,19 @@ export function EmployeeAuthScreen({
                   htmlFor="login-worker-id"
                   className="block text-xs font-bold text-slate-700 mb-1.5"
                 >
-                  사번
+                  사번 (숫자 4자리)
                 </label>
                 <input
                   id="login-worker-id"
                   type="text"
+                  inputMode="numeric"
+                  maxLength={4}
                   autoComplete="username"
                   value={loginWorkerId}
-                  onChange={e => setLoginWorkerId(e.target.value)}
-                  placeholder="예: 240301 또는 hong01"
+                  onChange={e => setLoginWorkerId(e.target.value.replace(/\D/g, '').slice(0, 4))}
+                  placeholder="예: 1455"
                   required
-                  className="w-full h-11 px-3.5 rounded-xl border border-slate-300 bg-white text-slate-900 font-mono text-sm focus:outline-none focus:ring-2 focus:ring-blue-600 focus:border-blue-600"
+                  className="w-full h-11 px-3.5 rounded-xl border border-slate-300 bg-white text-slate-900 font-mono text-sm tracking-widest focus:outline-none focus:ring-2 focus:ring-blue-600 focus:border-blue-600"
                 />
               </div>
 
@@ -284,7 +293,7 @@ export function EmployeeAuthScreen({
                   htmlFor="login-password"
                   className="block text-xs font-bold text-slate-700 mb-1.5"
                 >
-                  비밀번호
+                  비밀번호 (4자리 이상 · 초기 {DEFAULT_INITIAL_PASSWORD})
                 </label>
                 <div className="relative">
                   <input
@@ -293,7 +302,7 @@ export function EmployeeAuthScreen({
                     autoComplete="current-password"
                     value={loginPassword}
                     onChange={e => setLoginPassword(e.target.value)}
-                    placeholder="비밀번호 6자 이상 입력"
+                    placeholder={`비밀번호 ${MIN_PASSWORD_LENGTH}자리 이상 입력 (초기 ${DEFAULT_INITIAL_PASSWORD})`}
                     required
                     minLength={MIN_PASSWORD_LENGTH}
                     className="w-full h-11 pl-3.5 pr-11 rounded-xl border border-slate-300 bg-white text-slate-900 text-sm focus:outline-none focus:ring-2 focus:ring-blue-600 focus:border-blue-600"
@@ -346,16 +355,18 @@ export function EmployeeAuthScreen({
                     htmlFor="reg-worker-id"
                     className="block text-xs font-bold text-slate-700 mb-1"
                   >
-                    사번 <span className="text-rose-600">*</span>
+                    사번 (숫자 4자리) <span className="text-rose-600">*</span>
                   </label>
                   <input
                     id="reg-worker-id"
                     type="text"
+                    inputMode="numeric"
+                    maxLength={4}
                     value={regWorkerId}
-                    onChange={e => setRegWorkerId(e.target.value)}
-                    placeholder="예: 240301"
+                    onChange={e => setRegWorkerId(e.target.value.replace(/\D/g, '').slice(0, 4))}
+                    placeholder="예: 1455"
                     required
-                    className="w-full h-10 px-3 rounded-xl border border-slate-300 bg-white text-slate-900 font-mono text-sm focus:outline-none focus:ring-2 focus:ring-blue-600"
+                    className="w-full h-10 px-3 rounded-xl border border-slate-300 bg-white text-slate-900 font-mono text-sm tracking-widest focus:outline-none focus:ring-2 focus:ring-blue-600"
                   />
                   <p className="text-[11px] text-slate-500 mt-1 font-mono truncate">
                     인증 ID: {previewRegEmail}
@@ -367,14 +378,14 @@ export function EmployeeAuthScreen({
                     htmlFor="reg-display-name"
                     className="block text-xs font-bold text-slate-700 mb-1"
                   >
-                    성명 / 직급 <span className="text-rose-600">*</span>
+                    성명 <span className="text-rose-600">*</span>
                   </label>
                   <input
                     id="reg-display-name"
                     type="text"
                     value={regDisplayName}
                     onChange={e => setRegDisplayName(e.target.value)}
-                    placeholder="예: 홍길동 주임"
+                    placeholder="성명을 입력하세요"
                     required
                     maxLength={80}
                     className="w-full h-10 px-3 rounded-xl border border-slate-300 bg-white text-slate-900 text-sm focus:outline-none focus:ring-2 focus:ring-blue-600"
@@ -383,6 +394,30 @@ export function EmployeeAuthScreen({
               </div>
 
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
+                <div>
+                  <label
+                    htmlFor="reg-role"
+                    className="block text-xs font-bold text-slate-700 mb-1"
+                  >
+                    직책 / 권한 <span className="text-rose-600">*</span>
+                  </label>
+                  <select
+                    id="reg-role"
+                    value={regRole}
+                    onChange={e => setRegRole(e.target.value as Exclude<UserRole, 'ADMIN'>)}
+                    className="w-full h-10 px-3 rounded-xl border border-slate-300 bg-white text-slate-900 text-sm focus:outline-none focus:ring-2 focus:ring-blue-600"
+                  >
+                    {SELF_REGISTER_ROLES.map(r => (
+                      <option key={r} value={r}>
+                        {ROLE_CONFIG[r].label}
+                      </option>
+                    ))}
+                    <option value="ADMIN" disabled>
+                      관리자 (관리자 발급/승인 전용)
+                    </option>
+                  </select>
+                </div>
+
                 <div>
                   <label
                     htmlFor="reg-process"
@@ -396,31 +431,31 @@ export function EmployeeAuthScreen({
                     onChange={e => setRegProcess(e.target.value as BreweryProcess)}
                     className="w-full h-10 px-3 rounded-xl border border-slate-300 bg-white text-slate-900 text-sm focus:outline-none focus:ring-2 focus:ring-blue-600"
                   >
-                    {PROCESS_OPTIONS.map(proc => (
+                    {PROCESS_ORDER.map(proc => (
                       <option key={proc} value={proc}>
-                        {PROCESS_CONFIG[proc].label} — {PROCESS_CONFIG[proc].desc}
+                        {PROCESS_CONFIG[proc].label}
                       </option>
                     ))}
                   </select>
                 </div>
+              </div>
 
-                <div>
-                  <label
-                    htmlFor="reg-phone"
-                    className="block text-xs font-bold text-slate-700 mb-1"
-                  >
-                    연락처 (선택)
-                  </label>
-                  <input
-                    id="reg-phone"
-                    type="tel"
-                    value={regPhone}
-                    onChange={e => setRegPhone(e.target.value)}
-                    placeholder="예: 010-1234-5678"
-                    maxLength={30}
-                    className="w-full h-10 px-3 rounded-xl border border-slate-300 bg-white text-slate-900 font-mono text-sm focus:outline-none focus:ring-2 focus:ring-blue-600"
-                  />
-                </div>
+              <div>
+                <label
+                  htmlFor="reg-phone"
+                  className="block text-xs font-bold text-slate-700 mb-1"
+                >
+                  연락처 (선택)
+                </label>
+                <input
+                  id="reg-phone"
+                  type="tel"
+                  value={regPhone}
+                  onChange={e => setRegPhone(e.target.value)}
+                  placeholder="예: 010-1234-5678"
+                  maxLength={30}
+                  className="w-full h-10 px-3 rounded-xl border border-slate-300 bg-white text-slate-900 font-mono text-sm focus:outline-none focus:ring-2 focus:ring-blue-600"
+                />
               </div>
 
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
@@ -429,7 +464,7 @@ export function EmployeeAuthScreen({
                     htmlFor="reg-password"
                     className="block text-xs font-bold text-slate-700 mb-1"
                   >
-                    비밀번호 (6자 이상) <span className="text-rose-600">*</span>
+                    비밀번호 ({MIN_PASSWORD_LENGTH}자리 이상) <span className="text-rose-600">*</span>
                   </label>
                   <div className="relative">
                     <input
@@ -438,7 +473,7 @@ export function EmployeeAuthScreen({
                       autoComplete="new-password"
                       value={regPassword}
                       onChange={e => setRegPassword(e.target.value)}
-                      placeholder="6자 이상"
+                      placeholder={`${MIN_PASSWORD_LENGTH}자리 이상 입력`}
                       required
                       minLength={MIN_PASSWORD_LENGTH}
                       className="w-full h-10 pl-3 pr-9 rounded-xl border border-slate-300 bg-white text-slate-900 text-sm focus:outline-none focus:ring-2 focus:ring-blue-600"
@@ -494,8 +529,8 @@ export function EmployeeAuthScreen({
               </button>
 
               <p className="text-[11px] text-slate-500 leading-relaxed">
-                자가 등록 시 기본 권한은 현장 작업자(WORKER)로 부여됩니다. 관리자 또는 공무팀 권한이
-                필요한 경우 등록 후 시스템 관리자에게 권한 변경을 요청하세요.
+                신규 등록 시 일반 담당·파트장·반장 직책을 선택할 수 있습니다. 관리자 권한은
+                시스템 관리자의 계정 발급 또는 권한 승인을 통해 부여됩니다.
               </p>
             </form>
           )}

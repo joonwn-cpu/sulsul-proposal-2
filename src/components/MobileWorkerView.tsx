@@ -27,6 +27,7 @@ import {
 import { 
   CATEGORY_CONFIG, 
   PROCESS_CONFIG, 
+  PROCESS_ORDER,
   STATUS_CONFIG 
 } from '../data/mockBreweryData';
 import {
@@ -90,7 +91,7 @@ export function MobileWorkerView({
       <div className="w-full max-w-md sm:max-w-lg mb-3 flex items-center justify-between text-xs text-slate-500 px-2">
         <div className="flex items-center gap-1.5">
           <span className="font-semibold text-slate-700">현장 모바일 뷰:</span>
-          <span>주류공장 현장 27명 스마트폰 구동 화면</span>
+          <span>양조2팀 제품공정 작업자 스마트폰 구동 화면</span>
         </div>
         <button
           onClick={() => setIsPhoneFrame(prev => !prev)}
@@ -246,9 +247,11 @@ export function MobileWorkerView({
                 onChange={e => setSelectedProcess(e.target.value as BreweryProcess | 'ALL')}
                 className="h-8 px-2 bg-slate-50 border border-slate-200 rounded-lg text-slate-800 font-semibold text-xs outline-none"
               >
-                <option value="ALL">전체 공정 (제국~병입)</option>
-                {Object.entries(PROCESS_CONFIG).map(([k, v]) => (
-                  <option key={k} value={k}>{v.icon} {v.label}</option>
+                <option value="ALL">전체 공정 (양조2팀 제품공정)</option>
+                {PROCESS_ORDER.map(k => (
+                  <option key={k} value={k}>
+                    {PROCESS_CONFIG[k].icon} {PROCESS_CONFIG[k].label}
+                  </option>
                 ))}
               </select>
 

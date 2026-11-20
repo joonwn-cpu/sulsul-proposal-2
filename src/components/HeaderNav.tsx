@@ -12,8 +12,8 @@ import {
   Wifi,
   WifiOff,
 } from 'lucide-react';
-import { BreweryWorker, UserRole } from '../types/brewery';
-import { PROCESS_CONFIG } from '../data/mockBreweryData';
+import { BreweryWorker } from '../types/brewery';
+import { PROCESS_CONFIG, ROLE_CONFIG } from '../data/mockBreweryData';
 
 interface HeaderNavProps {
   activeTab: 'mobile' | 'admin' | 'docs';
@@ -32,11 +32,6 @@ interface HeaderNavProps {
   onSignOut: () => void;
 }
 
-const ROLE_LABELS: Record<UserRole, string> = {
-  WORKER: '작업자',
-  ADMIN: '관리자',
-  MAINTENANCE: '공무·안전',
-};
 
 export function HeaderNav({
   activeTab,
@@ -146,7 +141,7 @@ export function HeaderNav({
                 ·
               </span>
               <span className="hidden xl:inline text-slate-300 whitespace-nowrap">
-                {PROCESS_CONFIG[currentUser.process]?.label} / {ROLE_LABELS[currentUser.role]}
+                {PROCESS_CONFIG[currentUser.process]?.label} / {ROLE_CONFIG[currentUser.role]?.label}
               </span>
             </div>
 
@@ -210,14 +205,14 @@ export function HeaderNav({
                 <ShieldCheck className="w-4 h-4" />
               </button>
 
-              {/* 로컬 샘플 데이터 리셋 (2단계 확인, window.confirm 미사용) */}
+              {/* 로컬 임시 데이터 초기화 (2단계 확인, window.confirm 미사용) */}
               <button
                 type="button"
                 onClick={handleResetClick}
                 title={
                   confirmReset
-                    ? '한 번 더 클릭하면 로컬 샘플 데이터를 초기화합니다'
-                    : '로컬 샘플 데이터 초기화'
+                    ? '한 번 더 클릭하면 로컬 임시 데이터를 초기화합니다'
+                    : '로컬 임시 데이터 초기화'
                 }
                 className={`flex items-center gap-1 px-2 py-1.5 rounded-lg text-xs font-semibold transition-colors whitespace-nowrap shrink-0 cursor-pointer ${
                   confirmReset

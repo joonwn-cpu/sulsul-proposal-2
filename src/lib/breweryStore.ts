@@ -7,9 +7,11 @@ import {
   SuggestionStatus,
   StatusHistoryLog
 } from '../types/brewery';
-import { 
-  INITIAL_WORKERS, 
-  INITIAL_SUGGESTIONS 
+import {
+  INITIAL_SUGGESTIONS,
+  INITIAL_WORKERS,
+  normalizeProcess,
+  normalizeRole,
 } from '../data/mockBreweryData';
 import {
   CATEGORY_SEVERITY_SCORES,
@@ -79,11 +81,36 @@ export function toFirestoreSuggestionDocument(suggestion: Suggestion) {
 }
 
 const STORAGE_KEYS = {
-  SUGGESTIONS: 'sulsul_suggestions_v1',
-  WORKERS: 'sulsul_workers_v1',
-  CURRENT_USER_ID: 'sulsul_current_user_v1',
-  OFFLINE_QUEUE: 'sulsul_offline_queue_v1',
+  SUGGESTIONS: 'sulsul_suggestions_v4',
+  WORKERS: 'sulsul_workers_v4',
+  CURRENT_USER_ID: 'sulsul_current_user_v4',
+  OFFLINE_QUEUE: 'sulsul_offline_queue_v4',
 };
+
+const LEGACY_STORAGE_KEYS = [
+  'sulsul_suggestions_v3',
+  'sulsul_workers_v3',
+  'sulsul_current_user_v3',
+  'sulsul_offline_queue_v3',
+];
+
+const LEGACY_SAMPLE_SUGGESTION_IDS = new Set([
+  'SUG-2026-001',
+  'SUG-2026-002',
+  'SUG-2026-003',
+  'SUG-2026-004',
+  'SUG-2026-005',
+]);
+
+function purgeLegacySampleStorage(): void {
+  try {
+    LEGACY_STORAGE_KEYS.forEach(key => {
+      localStorage.removeItem(key);
+    });
+  } catch {
+    // ignore storage errors
+  }
+}
 
 // Simple event emitter for real-time Firestore simulation
 type Listener = () => void;
@@ -100,26 +127,40 @@ export function subscribeBreweryStore(listener: Listener): () => void {
   };
 }
 
-// Get stored suggestions
+// Get stored suggestions (legacy sample items excluded)
 export function getStoredSuggestions(): Suggestion[] {
   try {
     const raw = localStorage.getItem(STORAGE_KEYS.SUGGESTIONS);
     if (!raw) {
-      const enrichedInitial = INITIAL_SUGGESTIONS.map(enrichSuggestionWithPriority);
-      localStorage.setItem(STORAGE_KEYS.SUGGESTIONS, JSON.stringify(enrichedInitial));
-      return enrichedInitial;
+      // 기존 v3 로컬 데이터 중 샘플 항목을 제외한 사용자 작성분만 이관
+      const legacyRaw = localStorage.getItem('sulsul_suggestions_v3');
+      let migrated: Suggestion[] = [];
+      if (legacyRaw) {
+        try {
+          const legacyParsed: Suggestion[] = JSON.parse(legacyRaw);
+          migrated = legacyParsed
+            .filter(item => item && !LEGACY_SAMPLE_SUGGESTION_IDS.has(item.id))
+            .map(enrichSuggestionWithPriority);
+        } catch {
+          migrated = [];
+        }
+      }
+      purgeLegacySampleStorage();
+      const initial = migrated.length > 0 ? migrated : INITIAL_SUGGESTIONS.map(enrichSuggestionWithPriority);
+      localStorage.setItem(STORAGE_KEYS.SUGGESTIONS, JSON.stringify(initial));
+      return initial;
     }
     const parsed: Suggestion[] = JSON.parse(raw);
     let needsPersist = false;
-    const initialMap = new Map(INITIAL_SUGGESTIONS.map(s => [s.id, s]));
-    const enriched = parsed.map(item => {
-      const next = enrichSuggestionWithPriority(item);
-      const initialItem = initialMap.get(next.id);
-      if (next.deadlineAlertEnabled === undefined && initialItem?.deadlineAlertEnabled !== undefined) {
-        next.deadlineAlertEnabled = initialItem.deadlineAlertEnabled;
-        next.deadlineAlertDays = initialItem.deadlineAlertDays ?? 2;
+    const cleaned = parsed.filter(item => {
+      if (LEGACY_SAMPLE_SUGGESTION_IDS.has(item.id)) {
         needsPersist = true;
+        return false;
       }
+      return true;
+    });
+    const enriched = cleaned.map(item => {
+      const next = enrichSuggestionWithPriority(item);
       if (
         item.priorityScore !== next.priorityScore ||
         !item.priorityBreakdown ||
@@ -134,35 +175,44 @@ export function getStoredSuggestions(): Suggestion[] {
     }
     return enriched;
   } catch {
-    return INITIAL_SUGGESTIONS.map(enrichSuggestionWithPriority);
+    return [];
   }
 }
 
-// Get stored workers
+// Get stored workers (no pre-seeded fake sample workers)
 export function getStoredWorkers(): BreweryWorker[] {
   try {
     const raw = localStorage.getItem(STORAGE_KEYS.WORKERS);
     if (!raw) {
+      localStorage.removeItem('sulsul_workers_v3');
       localStorage.setItem(STORAGE_KEYS.WORKERS, JSON.stringify(INITIAL_WORKERS));
       return INITIAL_WORKERS;
     }
-    return JSON.parse(raw);
+    const parsed: BreweryWorker[] = JSON.parse(raw);
+    return parsed.map(w => ({
+      ...w,
+      process: normalizeProcess(w.process),
+      role: normalizeRole(w.role),
+    }));
   } catch {
-    return INITIAL_WORKERS;
+    return [];
   }
 }
 
-// Current logged in worker
-export function getCurrentUser(): BreweryWorker {
+// Current logged in worker (fallback helper)
+export function getCurrentUser(): BreweryWorker | null {
   const workers = getStoredWorkers();
-  const currentId = localStorage.getItem(STORAGE_KEYS.CURRENT_USER_ID) || '240301'; // Default: 최발효 반장
+  if (workers.length === 0) return null;
+  const currentId = localStorage.getItem(STORAGE_KEYS.CURRENT_USER_ID) || '';
   return workers.find(w => w.id === currentId) || workers[0];
 }
 
-export function setCurrentUser(userId: string): BreweryWorker {
+export function setCurrentUser(userId: string): BreweryWorker | null {
   const workers = getStoredWorkers();
-  const worker = workers.find(w => w.id === userId) || workers[0];
-  localStorage.setItem(STORAGE_KEYS.CURRENT_USER_ID, worker.id);
+  const worker = workers.find(w => w.id === userId) || workers[0] || null;
+  if (worker) {
+    localStorage.setItem(STORAGE_KEYS.CURRENT_USER_ID, worker.id);
+  }
   emitChange();
   return worker;
 }
@@ -347,9 +397,9 @@ export function updateSuggestionDeadlineAlert(
 export function calculateBreweryStats(suggestions: Suggestion[], workers: BreweryWorker[]): BreweryStats {
   const totalSuggestions = suggestions.length;
 
-  // 현장 직원 27명 대상 참여율 계산
-  const fieldWorkers = workers.filter(w => w.role === 'WORKER');
-  const totalFieldWorkers = fieldWorkers.length; // 27명
+  // 현장 인원(일반 담당·파트장·반장) 대상 참여율 계산
+  const fieldWorkers = workers.filter(w => w.role !== 'ADMIN');
+  const totalFieldWorkers = fieldWorkers.length;
   
   const workerSuggestionMap = new Map<string, number>();
   const workerAdoptedMap = new Map<string, number>();
@@ -374,15 +424,16 @@ export function calculateBreweryStats(suggestions: Suggestion[], workers: Brewer
     RISK_ASSESSMENT: 0,
   };
 
-  // Process counts
+  // 양조2팀 제품공정 8개 담당 공정별 건수
   const processCounts: Record<BreweryProcess, number> = {
-    MALTING: 0,
-    MASHING: 0,
-    FERMENTATION: 0,
-    FILTRATION: 0,
-    REFINING: 0,
-    BOTTLING: 0,
-    OTHER: 0,
+    DEPALLETIZER: 0,
+    RFC: 0,
+    LABELER: 0,
+    PACKER: 0,
+    INSPECTION: 0,
+    PART_LEADER: 0,
+    TEAM_LEADER: 0,
+    ADMIN: 0,
   };
 
   // Status counts
@@ -395,8 +446,9 @@ export function calculateBreweryStats(suggestions: Suggestion[], workers: Brewer
   };
 
   suggestions.forEach(s => {
+    const safeProc = normalizeProcess(s.process);
     if (categoryCounts[s.category] !== undefined) categoryCounts[s.category]++;
-    if (processCounts[s.process] !== undefined) processCounts[s.process]++;
+    if (processCounts[safeProc] !== undefined) processCounts[safeProc]++;
     if (statusCounts[s.status] !== undefined) statusCounts[s.status]++;
   });
 
@@ -417,7 +469,7 @@ export function calculateBreweryStats(suggestions: Suggestion[], workers: Brewer
     s => s.category === 'BREAKDOWN_REPAIR' && s.status === 'COMPLETED' && s.completedAt
   );
 
-  let avgLeadTimeHours = 3.8; // 기본 베이스라인
+  let avgLeadTimeHours = 0;
   if (completedRepairs.length > 0) {
     const totalHours = completedRepairs.reduce((acc, cur) => {
       const created = new Date(cur.createdAt).getTime();
@@ -440,12 +492,12 @@ export function calculateBreweryStats(suggestions: Suggestion[], workers: Brewer
   };
 }
 
-// Reset data to initial
+// Reset local cached data cleanly (no fake sample data)
 export function resetBreweryData(): void {
-  const enrichedInitial = INITIAL_SUGGESTIONS.map(enrichSuggestionWithPriority);
-  localStorage.setItem(STORAGE_KEYS.SUGGESTIONS, JSON.stringify(enrichedInitial));
-  localStorage.setItem(STORAGE_KEYS.WORKERS, JSON.stringify(INITIAL_WORKERS));
+  purgeLegacySampleStorage();
+  localStorage.setItem(STORAGE_KEYS.SUGGESTIONS, JSON.stringify([]));
+  localStorage.setItem(STORAGE_KEYS.WORKERS, JSON.stringify([]));
   localStorage.removeItem(STORAGE_KEYS.OFFLINE_QUEUE);
-  localStorage.setItem(STORAGE_KEYS.CURRENT_USER_ID, '240301');
+  localStorage.removeItem(STORAGE_KEYS.CURRENT_USER_ID);
   emitChange();
 }

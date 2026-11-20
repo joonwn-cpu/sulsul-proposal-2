@@ -196,12 +196,16 @@ export default function App() {
     };
   }, [authReady, firebaseUser]);
 
-  // 로그인 직후 권한에 따라 기본 탭 자동 전환 (관리자/공무팀 -> 관리자 대시보드, 작업자 -> 현장 모바일)
+  // 로그인 직후 권한에 따라 기본 탭 자동 전환 (파트장·반장·관리자 -> 관리자 대시보드, 일반 담당 -> 현장 모바일)
   useEffect(() => {
     if (!firebaseUser || !currentProfile) return;
     if (initialTabSyncedForUidRef.current === firebaseUser.uid) return;
     initialTabSyncedForUidRef.current = firebaseUser.uid;
-    if (currentProfile.role === 'ADMIN' || currentProfile.role === 'MAINTENANCE') {
+    if (
+      currentProfile.role === 'ADMIN' ||
+      currentProfile.role === 'TEAM_LEADER' ||
+      currentProfile.role === 'PART_LEADER'
+    ) {
       setActiveTab('admin');
     } else {
       setActiveTab('mobile');
@@ -237,12 +241,12 @@ export default function App() {
       ? isBootstrappedAdminUser(firebaseUser)
         ? 'ADMIN01'
         : emailToWorkerId(firebaseUser.email, firebaseUser.uid)
-      : 'EMP01';
+      : '1455';
 
     return {
       id: fallbackId,
       name: firebaseUser?.displayName || `직원 ${fallbackId}`,
-      process: 'OTHER',
+      process: isBootstrappedAdminUser(firebaseUser) ? 'ADMIN' : 'RFC',
       role: isBootstrappedAdminUser(firebaseUser) ? 'ADMIN' : 'WORKER',
       phone: '-',
       isFirstLogin: false,
@@ -589,7 +593,7 @@ export default function App() {
         setHasWatermark={setHasWatermark}
         onResetData={() => {
           resetBreweryData();
-          showInfoToast('로컬 샘플 데이터가 초기 상태로 재설정되었습니다.');
+          showInfoToast('로컬 임시 데이터가 초기화되었습니다.');
         }}
         urgentAlertCount={stats.statusCounts.PENDING}
         canChangePassword={canChangePassword}
@@ -635,7 +639,7 @@ export default function App() {
                   {urgentAlertMessage.title}
                 </h4>
                 <p className="text-[11px] text-slate-400 mt-0.5">
-                  작성자: {urgentAlertMessage.author} · 관리자/공무팀 알림 발송 완료
+                  작성자: {urgentAlertMessage.author} · 양조2팀 관리자·반장 알림 발송 완료
                 </p>
               </div>
             </div>
