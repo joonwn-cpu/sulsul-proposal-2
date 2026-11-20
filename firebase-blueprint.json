@@ -30,7 +30,7 @@
           "format": "email",
           "minLength": 3,
           "maxLength": 254,
-          "description": "Verified email address (PII)."
+          "description": "Authenticated email address (Google email or normalized internal employee email <workerId>@sulsul.brewery)."
         },
         "phone": {
           "type": "string",
@@ -47,6 +47,10 @@
           "type": "string",
           "enum": ["WORKER", "ADMIN", "MAINTENANCE"],
           "description": "RBAC role (non-admins can only register as WORKER)."
+        },
+        "isFirstLogin": {
+          "type": "boolean",
+          "description": "Whether the employee must change their temporary initial password on first login (F-01)."
         },
         "createdAt": {
           "type": "string",

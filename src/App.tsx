@@ -1,24 +1,38 @@
-import React, { useState, useEffect, useRef, useMemo } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { User, onAuthStateChanged } from 'firebase/auth';
-import { 
-  getStoredSuggestions, 
-  getStoredWorkers, 
-  getCurrentUser, 
-  setCurrentUser, 
-  addSuggestion, 
-  updateSuggestionStatus, 
+import {
+  AlertTriangle,
+  BellRing,
+  CheckCircle2,
+  Loader2,
+  X,
+} from 'lucide-react';
+import {
+  addSuggestion,
+  calculateBreweryStats,
+  getOfflineQueue,
+  getStoredSuggestions,
+  getStoredWorkers,
+  resetBreweryData,
+  subscribeBreweryStore,
+  syncOfflineQueue,
   updateSuggestionDeadlineAlert,
-  calculateBreweryStats, 
-  resetBreweryData, 
-  subscribeBreweryStore, 
-  getOfflineQueue, 
-  syncOfflineQueue 
+  updateSuggestionStatus,
 } from './lib/breweryStore';
 import {
   auth,
   signInWithGoogle,
   signOutFirebase,
 } from './lib/firebase/client';
+import {
+  FirestoreUserProfile,
+  emailToWorkerId,
+  ensureUserProfile,
+  isBootstrappedAdminUser,
+  isPasswordAuthUser,
+  mapProfileToBreweryWorker,
+  subscribeUserProfiles,
+} from './lib/firebase/auth';
 import {
   createSuggestionInFirestore,
   subscribeFirestoreSuggestions,
@@ -32,13 +46,13 @@ import {
   requestBrowserNotificationPermission,
   sendDeadlineBrowserNotification,
 } from './lib/deadlineAlert';
-import { 
-  Suggestion, 
-  BreweryWorker, 
-  SuggestionStatus, 
-  SuggestionCategory, 
-  BreweryProcess, 
-  AttachmentItem 
+import {
+  AttachmentItem,
+  BreweryProcess,
+  BreweryWorker,
+  Suggestion,
+  SuggestionCategory,
+  SuggestionStatus,
 } from './types/brewery';
 import { HeaderNav } from './components/HeaderNav';
 import { MobileWorkerView } from './components/MobileWorkerView';
@@ -46,23 +60,34 @@ import { AdminDashboardView } from './components/AdminDashboardView';
 import { PrdDocsViewer } from './components/PrdDocsViewer';
 import { NewSuggestionModal } from './components/NewSuggestionModal';
 import { SuggestionDetailModal } from './components/SuggestionDetailModal';
-import { AlertTriangle, Bell, BellRing, X, CheckCircle2, Shield } from 'lucide-react';
+import { EmployeeAuthScreen } from './components/EmployeeAuthScreen';
+import { PasswordChangeModal } from './components/PasswordChangeModal';
+import { WorkerAccountManagerModal } from './components/WorkerAccountManagerModal';
 
 export default function App() {
   const [activeTab, setActiveTab] = useState<'mobile' | 'admin' | 'docs'>('mobile');
   const [localSuggestions, setLocalSuggestions] = useState<Suggestion[]>(getStoredSuggestions());
   const [cloudSuggestions, setCloudSuggestions] = useState<Suggestion[]>([]);
+  const [storedWorkers, setStoredWorkers] = useState<BreweryWorker[]>(getStoredWorkers());
+
+  // Firebase 인증 & 사용자 프로필 상태
   const [firebaseUser, setFirebaseUser] = useState<User | null>(null);
   const [authReady, setAuthReady] = useState<boolean>(false);
+  const [currentProfile, setCurrentProfile] = useState<FirestoreUserProfile | null>(null);
+  const [userProfiles, setUserProfiles] = useState<FirestoreUserProfile[]>([]);
   const [firestoreError, setFirestoreError] = useState<Error | null>(null);
-  const [workers, setWorkers] = useState<BreweryWorker[]>(getStoredWorkers());
-  const [currentUser, setCurrentUserLocal] = useState<BreweryWorker>(getCurrentUser());
+
   const [isOffline, setIsOffline] = useState<boolean>(false);
   const [hasWatermark, setHasWatermark] = useState<boolean>(true);
-  
+
   // 모달 상태
   const [isNewModalOpen, setIsNewModalOpen] = useState<boolean>(false);
   const [selectedSuggestion, setSelectedSuggestion] = useState<Suggestion | null>(null);
+  const [isPasswordModalOpen, setIsPasswordModalOpen] = useState<boolean>(false);
+  const [isAccountManagerOpen, setIsAccountManagerOpen] = useState<boolean>(false);
+
+  // 일반 안내 토스트 (window.alert 대체)
+  const [infoToast, setInfoToast] = useState<string | null>(null);
 
   // 긴급 알림 푸시 토스트 (F-03)
   const [urgentAlertMessage, setUrgentAlertMessage] = useState<{
@@ -86,13 +111,20 @@ export default function App() {
     useState<BrowserNotificationPermissionState>(() => getBrowserNotificationPermission());
 
   const notifiedDeadlineKeysRef = useRef<Set<string>>(new Set());
+  const initialTabSyncedForUidRef = useRef<string | null>(null);
+
+  const showInfoToast = (message: string) => {
+    setInfoToast(message);
+    setTimeout(() => {
+      setInfoToast(prev => (prev === message ? null : prev));
+    }, 4500);
+  };
 
   // 실시간 로컬 스토어 구독
   useEffect(() => {
     const unsubscribe = subscribeBreweryStore(() => {
       setLocalSuggestions(getStoredSuggestions());
-      setWorkers(getStoredWorkers());
-      setCurrentUserLocal(getCurrentUser());
+      setStoredWorkers(getStoredWorkers());
     });
     return () => unsubscribe();
   }, []);
@@ -104,16 +136,50 @@ export default function App() {
       setAuthReady(true);
       if (!user) {
         setCloudSuggestions([]);
+        setCurrentProfile(null);
+        setUserProfiles([]);
+        setIsPasswordModalOpen(false);
+        setIsAccountManagerOpen(false);
+        initialTabSyncedForUidRef.current = null;
       }
     });
     return () => unsubscribe();
   }, []);
 
-  // 인증 완료 후에만 Firestore onSnapshot 실시간 구독 연결
+  // 인증 완료 후 사용자 프로필 보장 및 실시간 구독
   useEffect(() => {
     if (!authReady || !firebaseUser) return;
 
-    const unsubscribe = subscribeFirestoreSuggestions(
+    let cancelled = false;
+
+    void ensureUserProfile(firebaseUser)
+      .then(profile => {
+        if (!cancelled) {
+          setCurrentProfile(profile);
+        }
+      })
+      .catch(err => {
+        if (!cancelled && err instanceof Error) {
+          setFirestoreError(err);
+        }
+      });
+
+    const unsubProfiles = subscribeUserProfiles(
+      firebaseUser,
+      profiles => {
+        setUserProfiles(profiles);
+      },
+      profile => {
+        if (profile) {
+          setCurrentProfile(profile);
+        }
+      },
+      err => {
+        setFirestoreError(err);
+      }
+    );
+
+    const unsubSuggestions = subscribeFirestoreSuggestions(
       firebaseUser,
       items => {
         setCloudSuggestions(items);
@@ -123,8 +189,24 @@ export default function App() {
       }
     );
 
-    return () => unsubscribe();
+    return () => {
+      cancelled = true;
+      unsubProfiles();
+      unsubSuggestions();
+    };
   }, [authReady, firebaseUser]);
+
+  // 로그인 직후 권한에 따라 기본 탭 자동 전환 (관리자/공무팀 -> 관리자 대시보드, 작업자 -> 현장 모바일)
+  useEffect(() => {
+    if (!firebaseUser || !currentProfile) return;
+    if (initialTabSyncedForUidRef.current === firebaseUser.uid) return;
+    initialTabSyncedForUidRef.current = firebaseUser.uid;
+    if (currentProfile.role === 'ADMIN' || currentProfile.role === 'MAINTENANCE') {
+      setActiveTab('admin');
+    } else {
+      setActiveTab('mobile');
+    }
+  }, [firebaseUser, currentProfile]);
 
   // 클라우드(Firestore) 제안과 로컬 시뮬레이션 제안 병합
   const cloudSuggestionIds = useMemo(
@@ -144,8 +226,62 @@ export default function App() {
     return merged;
   }, [cloudSuggestions, localSuggestions]);
 
+  // 인증된 실제 직원 기준 currentUser 계산
+  const currentUser: BreweryWorker = useMemo(() => {
+    if (currentProfile) {
+      const count = suggestions.filter(s => s.authorId === currentProfile.workerId).length;
+      return mapProfileToBreweryWorker(currentProfile, count);
+    }
+
+    const fallbackId = firebaseUser
+      ? isBootstrappedAdminUser(firebaseUser)
+        ? 'ADMIN01'
+        : emailToWorkerId(firebaseUser.email, firebaseUser.uid)
+      : 'EMP01';
+
+    return {
+      id: fallbackId,
+      name: firebaseUser?.displayName || `직원 ${fallbackId}`,
+      process: 'OTHER',
+      role: isBootstrappedAdminUser(firebaseUser) ? 'ADMIN' : 'WORKER',
+      phone: '-',
+      isFirstLogin: false,
+      suggestionCount: 0,
+    };
+  }, [currentProfile, firebaseUser, suggestions]);
+
+  // Firestore 실제 등록 계정을 우선으로 하여 workers 목록 구성
+  const workers: BreweryWorker[] = useMemo(() => {
+    const countByWorkerId = new Map<string, number>();
+    suggestions.forEach(s => {
+      countByWorkerId.set(s.authorId, (countByWorkerId.get(s.authorId) || 0) + 1);
+    });
+
+    const realWorkers = userProfiles.map(profile =>
+      mapProfileToBreweryWorker(profile, countByWorkerId.get(profile.workerId) || 0)
+    );
+
+    const existingIds = new Set(realWorkers.map(w => w.id));
+    if (!existingIds.has(currentUser.id)) {
+      realWorkers.unshift(currentUser);
+      existingIds.add(currentUser.id);
+    }
+
+    const merged: BreweryWorker[] = [...realWorkers];
+    storedWorkers.forEach(w => {
+      if (!existingIds.has(w.id)) {
+        merged.push({
+          ...w,
+          suggestionCount: countByWorkerId.get(w.id) || 0,
+        });
+      }
+    });
+    return merged;
+  }, [userProfiles, currentUser, storedWorkers, suggestions]);
+
   // 처리 기한 임박 제안 감지 시 브라우저 푸시 알림 및 대시보드 경고 토스트 발송
   useEffect(() => {
+    if (!firebaseUser) return;
     const todayStr = getTodayLocalDateStr();
     const imminentEntries = suggestions
       .map(s => ({ suggestion: s, info: getDeadlineAlertInfo(s) }))
@@ -181,7 +317,7 @@ export default function App() {
       setDeadlineToastAlert(null);
     }, 8000);
     return () => clearTimeout(timer);
-  }, [suggestions]);
+  }, [suggestions, firebaseUser]);
 
   const activeSelectedSuggestion = selectedSuggestion
     ? suggestions.find(s => s.id === selectedSuggestion.id) || selectedSuggestion
@@ -190,11 +326,12 @@ export default function App() {
   const stats = calculateBreweryStats(suggestions, workers);
   const offlineQueue = getOfflineQueue();
 
-  // 사용자 전환
-  const handleSelectUser = (workerId: string) => {
-    const updated = setCurrentUser(workerId);
-    setCurrentUserLocal(updated);
-  };
+  const isSuperAdmin = isBootstrappedAdminUser(firebaseUser);
+  const canManageAccounts = isSuperAdmin || currentUser.role === 'ADMIN';
+  const canChangePassword = isPasswordAuthUser(firebaseUser);
+  const mustChangePasswordNow = Boolean(
+    firebaseUser && canChangePassword && currentProfile?.isFirstLogin
+  );
 
   // 신규 제안 등록 (F-02 & F-03)
   const handleCreateSuggestion = (data: {
@@ -209,31 +346,32 @@ export default function App() {
     quickTags: string[];
     audioTranscript?: string;
   }) => {
-    const created = addSuggestion({
-      title: data.title,
-      description: data.description,
-      category: data.category,
-      process: data.process,
-      locationDetail: data.locationDetail,
-      authorId: currentUser.id,
-      authorName: currentUser.name,
-      authorProcess: currentUser.process,
-      status: 'PENDING',
-      isUrgent: data.isUrgent,
-      urgencyReason: data.urgencyReason,
-      attachments: data.attachments,
-      quickTags: data.quickTags,
-      audioTranscript: data.audioTranscript,
-    }, isOffline);
+    const created = addSuggestion(
+      {
+        title: data.title,
+        description: data.description,
+        category: data.category,
+        process: data.process,
+        locationDetail: data.locationDetail,
+        authorId: currentUser.id,
+        authorName: currentUser.name,
+        authorProcess: currentUser.process,
+        status: 'PENDING',
+        isUrgent: data.isUrgent,
+        urgencyReason: data.urgencyReason,
+        attachments: data.attachments,
+        quickTags: data.quickTags,
+        audioTranscript: data.audioTranscript,
+      },
+      isOffline
+    );
 
-    // Firebase 인증 상태이고 온라인이면 Firestore에 저장
     if (firebaseUser && !isOffline) {
       void createSuggestionInFirestore(created, firebaseUser).catch(err => {
         if (err instanceof Error) setFirestoreError(err);
       });
     }
 
-    // 긴급 고장/위험성평가 시 F-03 긴급 알림 푸시 토스트 발동
     if (data.isUrgent) {
       setUrgentAlertMessage({
         id: created.id,
@@ -242,7 +380,6 @@ export default function App() {
         author: currentUser.name,
       });
 
-      // 5초 후 자동 닫기
       setTimeout(() => {
         setUrgentAlertMessage(null);
       }, 7000);
@@ -273,7 +410,12 @@ export default function App() {
       deadlineAlertDays
     );
 
-    if (firebaseUser && !isOffline && cloudSuggestionIds.has(suggestionId)) {
+    if (
+      firebaseUser &&
+      !isOffline &&
+      cloudSuggestionIds.has(suggestionId) &&
+      (isSuperAdmin || currentUser.role === 'ADMIN')
+    ) {
       void updateSuggestionInFirestore(suggestionId, {
         status: newStatus,
         assignedTo,
@@ -305,29 +447,29 @@ export default function App() {
     updateSuggestionDeadlineAlert(suggestionId, enabled, alertDaysBefore, dueDate);
 
     if (firebaseUser && !isOffline && cloudSuggestionIds.has(suggestionId)) {
-      void updateSuggestionInFirestore(suggestionId, {
-        deadlineAlertEnabled: enabled,
-        deadlineAlertDays: alertDaysBefore,
-        dueDate,
-      }).catch(err => {
-        if (err instanceof Error) setFirestoreError(err);
-      });
+      const target = suggestions.find(s => s.id === suggestionId);
+      const isTerminal = target?.status === 'COMPLETED' || target?.status === 'REJECTED';
+      if (canManageAccounts || !isTerminal) {
+        void updateSuggestionInFirestore(suggestionId, {
+          deadlineAlertEnabled: enabled,
+          deadlineAlertDays: alertDaysBefore,
+          dueDate,
+        }).catch(err => {
+          if (err instanceof Error) setFirestoreError(err);
+        });
+      }
     }
   };
 
   const handleSignInGoogle = async () => {
-    try {
-      await signInWithGoogle();
-    } catch (error) {
-      console.error('Google sign-in failed:', error);
-    }
+    await signInWithGoogle();
   };
 
-  const handleSignOutGoogle = async () => {
+  const handleSignOut = async () => {
     try {
       await signOutFirebase();
     } catch (error) {
-      console.error('Google sign-out failed:', error);
+      console.error('Sign-out failed:', error);
     }
   };
 
@@ -399,16 +541,37 @@ export default function App() {
         });
       });
     }
-    alert(`오프라인에 보관되었던 ${count}건의 제안이 중앙 서버로 정상 동기화되었습니다.`);
+    showInfoToast(`오프라인 보관 제안 ${count}건이 중앙 서버로 정상 동기화되었습니다.`);
   };
 
   if (firestoreError) {
     throw firestoreError;
   }
 
+  // Firebase Auth 초기화 대기 화면
+  if (!authReady) {
+    return (
+      <div className="min-h-screen bg-slate-100 flex items-center justify-center p-6">
+        <div className="flex flex-col items-center gap-3 text-slate-600">
+          <Loader2 className="w-7 h-7 animate-spin text-slate-800" />
+          <p className="text-sm font-semibold">인증 상태를 확인하고 있습니다...</p>
+        </div>
+      </div>
+    );
+  }
+
+  // 미로그인 시 사번 + 비밀번호 로그인 화면 표시
+  if (!firebaseUser) {
+    return <EmployeeAuthScreen onSignInGoogle={handleSignInGoogle} />;
+  }
+
   return (
-    <div className={`min-h-screen bg-slate-100 text-slate-900 flex flex-col relative ${hasWatermark ? 'plant-watermark' : ''}`}>
-      {/* 화면 캡처 방지 및 사내 보안 워터마크 안내 (비기능) */}
+    <div
+      className={`min-h-screen bg-slate-100 text-slate-900 flex flex-col relative ${
+        hasWatermark ? 'plant-watermark' : ''
+      }`}
+    >
+      {/* 화면 캡처 방지 및 사내 보안 워터마크 안내 */}
       {hasWatermark && (
         <div className="fixed inset-0 pointer-events-none z-50 flex items-center justify-center opacity-[0.035] select-none text-slate-900 rotate-[-25deg] text-xl font-black">
           [사내기밀] {currentUser.name} ({currentUser.id}) • {new Date().toLocaleDateString('ko-KR')}
@@ -420,26 +583,43 @@ export default function App() {
         activeTab={activeTab}
         setActiveTab={setActiveTab}
         currentUser={currentUser}
-        workers={workers}
-        onSelectUser={handleSelectUser}
         isOffline={isOffline}
         setIsOffline={setIsOffline}
         hasWatermark={hasWatermark}
         setHasWatermark={setHasWatermark}
-        onResetData={resetBreweryData}
+        onResetData={() => {
+          resetBreweryData();
+          showInfoToast('로컬 샘플 데이터가 초기 상태로 재설정되었습니다.');
+        }}
         urgentAlertCount={stats.statusCounts.PENDING}
-        firebaseUserEmail={firebaseUser?.email}
-        firebaseAuthReady={authReady}
-        onSignInGoogle={handleSignInGoogle}
-        onSignOutGoogle={handleSignOutGoogle}
+        canChangePassword={canChangePassword}
+        canManageAccounts={canManageAccounts}
+        onOpenPasswordModal={() => setIsPasswordModalOpen(true)}
+        onOpenAccountManager={() => setIsAccountManagerOpen(true)}
+        onSignOut={handleSignOut}
       />
+
+      {/* 일반 안내 토스트 */}
+      {infoToast && (
+        <div className="fixed bottom-5 right-5 z-50 max-w-sm bg-slate-900 text-white rounded-xl border border-slate-700 shadow-xl px-4 py-3 flex items-center gap-2.5 text-xs font-semibold">
+          <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
+          <span>{infoToast}</span>
+          <button
+            type="button"
+            onClick={() => setInfoToast(null)}
+            className="text-slate-400 hover:text-white ml-1 cursor-pointer"
+          >
+            <X className="w-3.5 h-3.5" />
+          </button>
+        </div>
+      )}
 
       {/* F-03 긴급 고장/위험 알림 실시간 푸시 토스트 */}
       {urgentAlertMessage && (
-        <div className="fixed top-16 right-4 z-50 max-w-sm w-full bg-slate-950 text-white rounded-2xl shadow-2xl border-2 border-rose-500 p-4 animate-in slide-in-from-top duration-300">
+        <div className="fixed top-16 right-4 z-50 max-w-sm w-full bg-slate-950 text-white rounded-2xl shadow-2xl border-2 border-rose-500 p-4">
           <div className="flex items-start justify-between gap-3">
             <div className="flex items-start gap-2.5">
-              <div className="w-8 h-8 rounded-full bg-rose-600 flex items-center justify-center shrink-0 animate-bounce">
+              <div className="w-8 h-8 rounded-full bg-rose-600 flex items-center justify-center shrink-0">
                 <AlertTriangle className="w-4 h-4 text-white" />
               </div>
               <div>
@@ -448,21 +628,22 @@ export default function App() {
                     F-03 긴급 발송
                   </span>
                   <span className="text-xs font-bold text-rose-300">
-                    {urgentAlertMessage.category} 접수!
+                    {urgentAlertMessage.category} 접수
                   </span>
                 </div>
                 <h4 className="font-bold text-sm text-white mt-1 leading-snug">
                   {urgentAlertMessage.title}
                 </h4>
                 <p className="text-[11px] text-slate-400 mt-0.5">
-                  작성자: {urgentAlertMessage.author} ➔ 관리자/공무팀 푸시 완료
+                  작성자: {urgentAlertMessage.author} · 관리자/공무팀 알림 발송 완료
                 </p>
               </div>
             </div>
 
-            <button 
+            <button
+              type="button"
               onClick={() => setUrgentAlertMessage(null)}
-              className="text-slate-400 hover:text-white"
+              className="text-slate-400 hover:text-white cursor-pointer"
             >
               <X className="w-4 h-4" />
             </button>
@@ -473,11 +654,13 @@ export default function App() {
       {/* 처리 기한 임박 브라우저 푸시/경고 토스트 */}
       {deadlineToastAlert && (
         <div
-          className={`fixed ${urgentAlertMessage ? 'top-44' : 'top-16'} right-4 z-50 max-w-sm w-full bg-amber-950 text-white rounded-2xl shadow-2xl border-2 border-amber-400 p-4 animate-in slide-in-from-top duration-300`}
+          className={`fixed ${
+            urgentAlertMessage ? 'top-44' : 'top-16'
+          } right-4 z-50 max-w-sm w-full bg-amber-950 text-white rounded-2xl shadow-2xl border-2 border-amber-400 p-4`}
         >
           <div className="flex items-start justify-between gap-3">
             <div className="flex items-start gap-2.5">
-              <div className="w-8 h-8 rounded-full bg-amber-500 flex items-center justify-center shrink-0 animate-pulse">
+              <div className="w-8 h-8 rounded-full bg-amber-500 flex items-center justify-center shrink-0">
                 <BellRing className="w-4 h-4 text-slate-950" />
               </div>
               <div>
@@ -507,8 +690,9 @@ export default function App() {
             </div>
 
             <button
+              type="button"
               onClick={() => setDeadlineToastAlert(null)}
-              className="text-amber-300 hover:text-white"
+              className="text-amber-300 hover:text-white cursor-pointer"
             >
               <X className="w-4 h-4" />
             </button>
@@ -542,12 +726,12 @@ export default function App() {
             notificationPermission={notificationPermission}
             onRequestNotificationPermission={handleRequestNotificationPermission}
             onDispatchPushAlerts={handleDispatchPushAlerts}
+            onOpenAccountManager={canManageAccounts ? () => setIsAccountManagerOpen(true) : undefined}
+            realUserCount={userProfiles.length}
           />
         )}
 
-        {activeTab === 'docs' && (
-          <PrdDocsViewer />
-        )}
+        {activeTab === 'docs' && <PrdDocsViewer />}
       </main>
 
       {/* F-02 신규 제안 등록 모달 */}
@@ -572,6 +756,30 @@ export default function App() {
         onUpdateStatus={handleUpdateStatus}
         onToggleDeadlineAlert={handleToggleDeadlineAlert}
         onTriggerDeadlineTestAlert={handleTriggerDeadlineTestAlert}
+      />
+
+      {/* F-01 최초 로그인 강제 비밀번호 변경 & 상시 비밀번호 변경 모달 */}
+      <PasswordChangeModal
+        isOpen={mustChangePasswordNow || isPasswordModalOpen}
+        forced={mustChangePasswordNow}
+        workerId={currentUser.id}
+        displayName={currentUser.name}
+        onClose={() => setIsPasswordModalOpen(false)}
+        onSuccess={() => {
+          setCurrentProfile(prev => (prev ? { ...prev, isFirstLogin: false } : prev));
+          showInfoToast('비밀번호가 변경되었습니다.');
+        }}
+        onLogout={handleSignOut}
+      />
+
+      {/* 관리자 전용 실제 직원 사번 계정 발급 및 권한 관리 모달 */}
+      <WorkerAccountManagerModal
+        isOpen={isAccountManagerOpen}
+        onClose={() => setIsAccountManagerOpen(false)}
+        userProfiles={userProfiles}
+        currentUserUid={firebaseUser.uid}
+        isBootstrappedAdmin={isSuperAdmin}
+        canManageAccounts={canManageAccounts}
       />
     </div>
   );

@@ -19,23 +19,37 @@ service cloud.firestore {
       return request.auth != null;
     }
 
-    function isVerifiedUser() {
-      return isSignedIn() && request.auth.token.email_verified == true;
+    // Internal plant Employee-ID accounts signed in via Firebase Email/Password (<workerId>@sulsul.brewery)
+    function isEmployeePasswordAuth() {
+      return isSignedIn()
+        && request.auth.token.firebase.sign_in_provider == 'password'
+        && request.auth.token.email is string
+        && request.auth.token.email.size() >= 17
+        && request.auth.token.email.size() <= 47
+        && request.auth.token.email.matches('^[a-z0-9_\\-]{2,32}@sulsul\\.brewery$');
+    }
+
+    // Accepts verified external/Google accounts OR strictly scoped internal Employee-ID password accounts
+    function isAuthenticatedUser() {
+      return (isSignedIn() && request.auth.token.email_verified == true)
+        || isEmployeePasswordAuth();
     }
 
     function isOwner(uid) {
-      return isVerifiedUser() && request.auth.uid == uid;
+      return isAuthenticatedUser() && request.auth.uid == uid;
     }
 
-    // Zero-DB-read admin check (safe for allow list without get()/exists())
+    // Zero-DB-read admin check (STRICTLY requires verified email; prevents unverified spoofing)
     function isBootstrappedAdmin() {
-      return isVerifiedUser() && request.auth.token.email == 'joonwn@gmail.com';
+      return isSignedIn()
+        && request.auth.token.email_verified == true
+        && request.auth.token.email == 'joonwn@gmail.com';
     }
 
     // Full admin check for single-document operations (used AFTER static validation)
     function isAdmin() {
       return isBootstrappedAdmin()
-        || (isVerifiedUser() && exists(/databases/$(database)/documents/admins/$(request.auth.uid)));
+        || (isAuthenticatedUser() && exists(/databases/$(database)/documents/admins/$(request.auth.uid)));
     }
 
     function isValidId(id) {
@@ -81,7 +95,7 @@ service cloud.firestore {
     // 3. Entity Validation Blueprints (Anti-Update-Gap)
     function isValidUserProfile(data, userId) {
       return data.keys().hasAll(['uid', 'workerId', 'displayName', 'email', 'process', 'role', 'createdAt', 'updatedAt'])
-        && data.keys().hasOnly(['uid', 'workerId', 'displayName', 'email', 'phone', 'process', 'role', 'createdAt', 'updatedAt'])
+        && data.keys().hasOnly(['uid', 'workerId', 'displayName', 'email', 'phone', 'process', 'role', 'isFirstLogin', 'createdAt', 'updatedAt'])
         && isValidId(data.uid)
         && data.uid == userId
         && data.workerId is string && data.workerId.size() >= 2 && data.workerId.size() <= 32 && data.workerId.matches('^[a-zA-Z0-9_\\-]+$')
@@ -90,6 +104,7 @@ service cloud.firestore {
         && (!('phone' in data) || (data.phone is string && data.phone.size() <= 30))
         && isValidProcess(data.process)
         && isValidRole(data.role)
+        && (!('isFirstLogin' in data) || data.isFirstLogin is bool)
         && data.createdAt is timestamp
         && data.updatedAt is timestamp;
     }
@@ -162,13 +177,13 @@ service cloud.firestore {
 
     // 4. Collection: /users/{userId} (Strict PII Isolation)
     match /users/{userId} {
-      allow get: if isVerifiedUser()
+      allow get: if isAuthenticatedUser()
         && isValidId(userId)
         && (isOwner(userId) || isAdmin());
 
       allow list: if isBootstrappedAdmin();
 
-      allow create: if isVerifiedUser()
+      allow create: if isAuthenticatedUser()
         && isValidId(userId)
         && isValidUserProfile(incoming(), userId)
         && incoming().createdAt == request.time
@@ -178,36 +193,45 @@ service cloud.firestore {
           || isAdmin()
         );
 
-      allow update: if isVerifiedUser()
+      allow update: if isAuthenticatedUser()
         && isValidId(userId)
         && isValidUserProfile(incoming(), userId)
         && incoming().uid == existing().uid
+        && incoming().email == existing().email
         && incoming().createdAt == existing().createdAt
         && incoming().updatedAt == request.time
         && (
-          isAdmin()
+          // Tier 1: Admin updating worker profile, process, role, or first-login state
+          (
+            isAdmin()
+            && incoming().diff(existing()).affectedKeys().hasOnly([
+              'displayName', 'phone', 'process', 'workerId', 'role', 'isFirstLogin', 'updatedAt'
+            ])
+          )
+          // Tier 2: Owner updating own profile or completing F-01 password change (role immutable)
           || (
             isOwner(userId)
             && incoming().role == existing().role
-            && incoming().email == existing().email
-            && incoming().diff(existing()).affectedKeys().hasOnly(['displayName', 'phone', 'process', 'workerId', 'updatedAt'])
+            && incoming().diff(existing()).affectedKeys().hasOnly([
+              'displayName', 'phone', 'process', 'workerId', 'isFirstLogin', 'updatedAt'
+            ])
           )
         );
 
-      allow delete: if isVerifiedUser()
+      allow delete: if isAuthenticatedUser()
         && isValidId(userId)
         && isAdmin();
     }
 
     // 5. Collection: /admins/{userId} (Trusted RBAC Grants)
     match /admins/{userId} {
-      allow get: if isVerifiedUser()
+      allow get: if isAuthenticatedUser()
         && isValidId(userId)
         && (isOwner(userId) || isBootstrappedAdmin());
 
       allow list: if isBootstrappedAdmin();
 
-      allow create: if isVerifiedUser()
+      allow create: if isAuthenticatedUser()
         && isValidId(userId)
         && isValidAdminGrant(incoming(), userId)
         && incoming().grantedAt == request.time
@@ -215,22 +239,22 @@ service cloud.firestore {
 
       allow update: if false;
 
-      allow delete: if isVerifiedUser()
+      allow delete: if isAuthenticatedUser()
         && isValidId(userId)
         && isBootstrappedAdmin();
     }
 
     // 6. Collection: /suggestions/{suggestionId}
     match /suggestions/{suggestionId} {
-      allow get: if isVerifiedUser()
+      allow get: if isAuthenticatedUser()
         && isValidId(suggestionId)
         && (existing().ownerUid == request.auth.uid || isAdmin());
 
       // Pillar 8: Zero-DB-read list enforcement against resource.data
-      allow list: if isVerifiedUser()
+      allow list: if isAuthenticatedUser()
         && (resource.data.ownerUid == request.auth.uid || isBootstrappedAdmin());
 
-      allow create: if isVerifiedUser()
+      allow create: if isAuthenticatedUser()
         && isValidId(suggestionId)
         && isValidSuggestion(incoming(), suggestionId)
         && incoming().ownerUid == request.auth.uid
@@ -248,7 +272,7 @@ service cloud.firestore {
         );
 
       // Action-Based Update Pattern + Terminal State Lock + Admin Override
-      allow update: if isVerifiedUser()
+      allow update: if isAuthenticatedUser()
         && isValidId(suggestionId)
         && isValidSuggestion(incoming(), suggestionId)
         && incoming().id == existing().id
@@ -287,13 +311,13 @@ service cloud.firestore {
           )
         );
 
-      allow delete: if isVerifiedUser()
+      allow delete: if isAuthenticatedUser()
         && isValidId(suggestionId)
         && isAdmin();
 
       // 7. Subcollection: /suggestions/{suggestionId}/comments/{commentId} (Master Gate)
       match /comments/{commentId} {
-        allow get: if isVerifiedUser()
+        allow get: if isAuthenticatedUser()
           && isValidId(suggestionId)
           && isValidId(commentId)
           && exists(/databases/$(database)/documents/suggestions/$(suggestionId))
@@ -303,14 +327,14 @@ service cloud.firestore {
           );
 
         // Zero-DB-read list enforcement against resource.data
-        allow list: if isVerifiedUser()
+        allow list: if isAuthenticatedUser()
           && (
             resource.data.parentOwnerUid == request.auth.uid
             || resource.data.authorUid == request.auth.uid
             || isBootstrappedAdmin()
           );
 
-        allow create: if isVerifiedUser()
+        allow create: if isAuthenticatedUser()
           && isValidId(suggestionId)
           && isValidId(commentId)
           && isValidSuggestionComment(incoming(), suggestionId, commentId)
@@ -324,7 +348,7 @@ service cloud.firestore {
 
         allow update: if false;
 
-        allow delete: if isVerifiedUser()
+        allow delete: if isAuthenticatedUser()
           && isValidId(suggestionId)
           && isValidId(commentId)
           && isAdmin();

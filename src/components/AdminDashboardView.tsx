@@ -86,6 +86,8 @@ interface AdminDashboardViewProps {
   notificationPermission?: BrowserNotificationPermissionState;
   onRequestNotificationPermission?: () => void;
   onDispatchPushAlerts?: () => void;
+  onOpenAccountManager?: () => void;
+  realUserCount?: number;
 }
 
 export function AdminDashboardView({
@@ -99,6 +101,8 @@ export function AdminDashboardView({
   notificationPermission = 'default',
   onRequestNotificationPermission,
   onDispatchPushAlerts,
+  onOpenAccountManager,
+  realUserCount = 0,
 }: AdminDashboardViewProps) {
   const [filterCategory, setFilterCategory] = useState<string>('ALL');
   const [filterStatus, setFilterStatus] = useState<string>('ALL');
@@ -619,6 +623,18 @@ export function AdminDashboardView({
         </div>
 
         <div className="flex items-center gap-2 flex-wrap">
+          {onOpenAccountManager && (
+            <button
+              type="button"
+              onClick={onOpenAccountManager}
+              className="inline-flex items-center gap-1.5 px-3 py-2 bg-blue-50 hover:bg-blue-100 text-blue-900 border border-blue-200 text-xs font-bold rounded-xl transition-colors cursor-pointer whitespace-nowrap"
+            >
+              <Users className="w-4 h-4 text-blue-600" />
+              <span>
+                직원 사번 계정 관리{realUserCount > 0 ? ` (${realUserCount}명)` : ''}
+              </span>
+            </button>
+          )}
           {notificationPermission === 'default' && onRequestNotificationPermission && (
             <button
               type="button"
