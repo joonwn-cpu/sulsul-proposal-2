@@ -9,74 +9,115 @@ import {
 import { doc, getDocFromServer, getFirestore } from 'firebase/firestore';
 import firebaseAppletConfig from '../../../firebase-applet-config.json';
 
+// 프로젝트(sulsul-proposal-2) 검증 완료 기본 fallback 설정
+// 주의: apiKey의 24번째 문자는 숫자 0이 아닌 영문 대문자 O (...gfeOjDf...)입니다.
+const DEFAULT_FIREBASE_CONFIG = {
+  apiKey: 'AIzaSyA1h983c8nNc6YDgfeOjDfvNtZGZ_v6k6I',
+  authDomain: 'sulsul-proposal-2.firebaseapp.com',
+  projectId: 'sulsul-proposal-2',
+  storageBucket: 'sulsul-proposal-2.firebasestorage.app',
+  messagingSenderId: '711863169912',
+  appId: '1:711863169912:web:b2d8afed0c027f69134e8d',
+  firestoreDatabaseId: 'ai-studio-1cdd4bd9-bb3f-4e2e-9c69-cbe1ce7af92d',
+} as const;
+
+// 숫자 0 오타로 인해 auth/api-key-not-valid를 유발하는 키 패턴 자동 보정
+const MISTYPED_API_KEY_WITH_ZERO = 'AIzaSyA1h983c8nNc6YDgfe0jDfvNtZGZ_v6k6I';
+
+function normalizeEnvValue(value: string | undefined): string {
+  if (!value) return '';
+  // Vercel 환경변수에 앞뒤 따옴표("..." / '...')나 공백이 포함된 경우 자동 제거
+  const cleaned = value.trim().replace(/^["']+|["']+$/g, '').trim();
+  if (!cleaned) return '';
+  // 예시 플레이스홀더 문자열이 그대로 들어간 경우 무시
+  if (/^(YOUR_|MY_|REPLACE_|remixed-project-id)/i.test(cleaned)) {
+    return '';
+  }
+  return cleaned;
+}
+
 function pickEnvValue(
   nextPublicValue: string | undefined,
   viteValue: string | undefined,
-  fallbackValue: string | undefined
+  ...fallbacks: Array<string | undefined>
 ): string {
-  const trimmedNext = nextPublicValue?.trim();
-  if (trimmedNext) return trimmedNext;
+  const cleanedNext = normalizeEnvValue(nextPublicValue);
+  if (cleanedNext) return cleanedNext;
 
-  const trimmedVite = viteValue?.trim();
-  if (trimmedVite) return trimmedVite;
+  const cleanedVite = normalizeEnvValue(viteValue);
+  if (cleanedVite) return cleanedVite;
 
-  return fallbackValue?.trim() || '';
+  for (const fallback of fallbacks) {
+    const cleanedFallback = normalizeEnvValue(fallback);
+    if (cleanedFallback) return cleanedFallback;
+  }
+
+  return '';
 }
 
+function resolveApiKey(): string {
+  const rawKey = pickEnvValue(
+    import.meta.env.NEXT_PUBLIC_FIREBASE_API_KEY,
+    import.meta.env.VITE_FIREBASE_API_KEY,
+    DEFAULT_FIREBASE_CONFIG.apiKey,
+    firebaseAppletConfig.apiKey
+  );
+  if (rawKey === MISTYPED_API_KEY_WITH_ZERO) {
+    return DEFAULT_FIREBASE_CONFIG.apiKey;
+  }
+  return rawKey;
+}
+
+const resolvedMeasurementId = pickEnvValue(
+  import.meta.env.NEXT_PUBLIC_FIREBASE_MEASUREMENT_ID,
+  import.meta.env.VITE_FIREBASE_MEASUREMENT_ID,
+  firebaseAppletConfig.measurementId
+);
+
 /**
- * Firebase 설정 로드 (우선순위: NEXT_PUBLIC_FIREBASE_* -> VITE_FIREBASE_* -> firebase-applet-config.json)
+ * Firebase 설정 로드 (우선순위: NEXT_PUBLIC_FIREBASE_* -> VITE_FIREBASE_* -> 기본 fallback 설정)
  * 대상 프로젝트: sulsul-proposal-2
  */
 export const firebaseConfig: FirebaseOptions = {
-  apiKey: pickEnvValue(
-    import.meta.env.NEXT_PUBLIC_FIREBASE_API_KEY,
-    import.meta.env.VITE_FIREBASE_API_KEY,
-    firebaseAppletConfig.apiKey
-  ),
+  apiKey: resolveApiKey(),
   authDomain: pickEnvValue(
     import.meta.env.NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN,
     import.meta.env.VITE_FIREBASE_AUTH_DOMAIN,
+    DEFAULT_FIREBASE_CONFIG.authDomain,
     firebaseAppletConfig.authDomain
   ),
   projectId: pickEnvValue(
     import.meta.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID,
     import.meta.env.VITE_FIREBASE_PROJECT_ID,
+    DEFAULT_FIREBASE_CONFIG.projectId,
     firebaseAppletConfig.projectId
   ),
   storageBucket: pickEnvValue(
     import.meta.env.NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET,
     import.meta.env.VITE_FIREBASE_STORAGE_BUCKET,
+    DEFAULT_FIREBASE_CONFIG.storageBucket,
     firebaseAppletConfig.storageBucket
   ),
   messagingSenderId: pickEnvValue(
     import.meta.env.NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID,
     import.meta.env.VITE_FIREBASE_MESSAGING_SENDER_ID,
+    DEFAULT_FIREBASE_CONFIG.messagingSenderId,
     firebaseAppletConfig.messagingSenderId
   ),
   appId: pickEnvValue(
     import.meta.env.NEXT_PUBLIC_FIREBASE_APP_ID,
     import.meta.env.VITE_FIREBASE_APP_ID,
+    DEFAULT_FIREBASE_CONFIG.appId,
     firebaseAppletConfig.appId
   ),
-  ...(pickEnvValue(
-    import.meta.env.NEXT_PUBLIC_FIREBASE_MEASUREMENT_ID,
-    import.meta.env.VITE_FIREBASE_MEASUREMENT_ID,
-    firebaseAppletConfig.measurementId
-  )
-    ? {
-        measurementId: pickEnvValue(
-          import.meta.env.NEXT_PUBLIC_FIREBASE_MEASUREMENT_ID,
-          import.meta.env.VITE_FIREBASE_MEASUREMENT_ID,
-          firebaseAppletConfig.measurementId
-        ),
-      }
-    : {}),
+  ...(resolvedMeasurementId ? { measurementId: resolvedMeasurementId } : {}),
 };
 
 export const firestoreDatabaseId: string = pickEnvValue(
   import.meta.env.NEXT_PUBLIC_FIREBASE_FIRESTORE_DATABASE_ID,
   import.meta.env.VITE_FIREBASE_FIRESTORE_DATABASE_ID,
-  firebaseAppletConfig.firestoreDatabaseId
+  firebaseAppletConfig.firestoreDatabaseId,
+  DEFAULT_FIREBASE_CONFIG.firestoreDatabaseId
 );
 
 export const isFirebaseConfigured = Boolean(
