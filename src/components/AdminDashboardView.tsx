@@ -89,6 +89,7 @@ interface AdminDashboardViewProps {
   onRequestNotificationPermission?: () => void;
   onDispatchPushAlerts?: () => void;
   onOpenAccountManager?: () => void;
+  onRegisterProcessExamples?: () => void;
   realUserCount?: number;
 }
 
@@ -104,6 +105,7 @@ export function AdminDashboardView({
   onRequestNotificationPermission,
   onDispatchPushAlerts,
   onOpenAccountManager,
+  onRegisterProcessExamples,
   realUserCount = 0,
 }: AdminDashboardViewProps) {
   const [filterCategory, setFilterCategory] = useState<string>('ALL');
@@ -625,6 +627,17 @@ export function AdminDashboardView({
         </div>
 
         <div className="flex items-center gap-2 flex-wrap">
+          {onRegisterProcessExamples &&
+            suggestions.filter(s => s.id.startsWith('SUG-EX-')).length < 8 && (
+              <button
+                type="button"
+                onClick={onRegisterProcessExamples}
+                className="inline-flex items-center gap-1.5 px-3 py-2 bg-emerald-50 hover:bg-emerald-100 text-emerald-900 border border-emerald-200 text-xs font-bold rounded-xl transition-colors cursor-pointer whitespace-nowrap"
+              >
+                <BarChart3 className="w-4 h-4 text-emerald-600" />
+                <span>8개 공정 제안 예시 등록</span>
+              </button>
+            )}
           {onOpenAccountManager && (
             <button
               type="button"

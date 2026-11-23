@@ -10,6 +10,7 @@ import {
 import {
   INITIAL_SUGGESTIONS,
   INITIAL_WORKERS,
+  PROCESS_EXAMPLE_SUGGESTIONS,
   normalizeProcess,
   normalizeRole,
 } from '../data/mockBreweryData';
@@ -85,6 +86,7 @@ const STORAGE_KEYS = {
   WORKERS: 'sulsul_workers_v4',
   CURRENT_USER_ID: 'sulsul_current_user_v4',
   OFFLINE_QUEUE: 'sulsul_offline_queue_v4',
+  EXAMPLES_SEEDED: 'sulsul_process_examples_seeded_v1',
 };
 
 const LEGACY_STORAGE_KEYS = [
@@ -127,10 +129,12 @@ export function subscribeBreweryStore(listener: Listener): () => void {
   };
 }
 
-// Get stored suggestions (legacy sample items excluded)
+// Get stored suggestions (legacy sample items excluded, 8 process examples seeded once)
 export function getStoredSuggestions(): Suggestion[] {
   try {
     const raw = localStorage.getItem(STORAGE_KEYS.SUGGESTIONS);
+    const alreadySeededExamples = localStorage.getItem(STORAGE_KEYS.EXAMPLES_SEEDED) === '1';
+
     if (!raw) {
       // 기존 v3 로컬 데이터 중 샘플 항목을 제외한 사용자 작성분만 이관
       const legacyRaw = localStorage.getItem('sulsul_suggestions_v3');
@@ -146,10 +150,16 @@ export function getStoredSuggestions(): Suggestion[] {
         }
       }
       purgeLegacySampleStorage();
-      const initial = migrated.length > 0 ? migrated : INITIAL_SUGGESTIONS.map(enrichSuggestionWithPriority);
+      const existingIds = new Set(migrated.map(item => item.id));
+      const initialExamples = PROCESS_EXAMPLE_SUGGESTIONS.filter(
+        ex => !existingIds.has(ex.id)
+      ).map(enrichSuggestionWithPriority);
+      const initial = [...migrated, ...initialExamples];
       localStorage.setItem(STORAGE_KEYS.SUGGESTIONS, JSON.stringify(initial));
+      localStorage.setItem(STORAGE_KEYS.EXAMPLES_SEEDED, '1');
       return initial;
     }
+
     const parsed: Suggestion[] = JSON.parse(raw);
     let needsPersist = false;
     const cleaned = parsed.filter(item => {
@@ -159,6 +169,19 @@ export function getStoredSuggestions(): Suggestion[] {
       }
       return true;
     });
+
+    if (!alreadySeededExamples) {
+      const existingIds = new Set(cleaned.map(item => item.id));
+      const missingExamples = PROCESS_EXAMPLE_SUGGESTIONS.filter(
+        ex => !existingIds.has(ex.id)
+      );
+      if (missingExamples.length > 0) {
+        cleaned.push(...missingExamples);
+        needsPersist = true;
+      }
+      localStorage.setItem(STORAGE_KEYS.EXAMPLES_SEEDED, '1');
+    }
+
     const enriched = cleaned.map(item => {
       const next = enrichSuggestionWithPriority(item);
       if (
@@ -175,8 +198,27 @@ export function getStoredSuggestions(): Suggestion[] {
     }
     return enriched;
   } catch {
-    return [];
+    return INITIAL_SUGGESTIONS.map(enrichSuggestionWithPriority);
   }
+}
+
+/**
+ * 누락된 8개 공정(DP, RFC, 라벨러, 포장기, 검사, 파트장, 반장, 관리자) 제안 예시를 로컬 스토어에 등록
+ */
+export function registerProcessExampleSuggestions(): Suggestion[] {
+  const currentList = getStoredSuggestions();
+  const existingIds = new Set(currentList.map(item => item.id));
+  const missing = PROCESS_EXAMPLE_SUGGESTIONS.filter(ex => !existingIds.has(ex.id)).map(
+    enrichSuggestionWithPriority
+  );
+
+  if (missing.length > 0) {
+    const updated = [...currentList, ...missing];
+    localStorage.setItem(STORAGE_KEYS.SUGGESTIONS, JSON.stringify(updated));
+    localStorage.setItem(STORAGE_KEYS.EXAMPLES_SEEDED, '1');
+    emitChange();
+  }
+  return missing;
 }
 
 // Get stored workers (no pre-seeded fake sample workers)

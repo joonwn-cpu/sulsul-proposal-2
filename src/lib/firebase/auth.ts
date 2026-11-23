@@ -428,7 +428,7 @@ export async function ensureUserProfile(user: User): Promise<FirestoreUserProfil
       : emailToWorkerId(user.email, user.uid);
     const derivedName = (
       user.displayName?.trim() ||
-      (isSuperAdmin ? '시스템 관리자' : `직원 ${derivedWorkerId}`)
+      (isSuperAdmin ? '허준원 관리자' : `직원 ${derivedWorkerId}`)
     ).slice(0, MAX_DISPLAY_NAME_LENGTH);
     const resolvedEmail = (user.email || workerIdToEmail(derivedWorkerId)).toLowerCase();
     const resolvedRole: UserRole = isSuperAdmin ? 'ADMIN' : 'WORKER';

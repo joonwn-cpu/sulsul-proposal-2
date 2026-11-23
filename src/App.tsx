@@ -13,12 +13,14 @@ import {
   getOfflineQueue,
   getStoredSuggestions,
   getStoredWorkers,
+  registerProcessExampleSuggestions,
   resetBreweryData,
   subscribeBreweryStore,
   syncOfflineQueue,
   updateSuggestionDeadlineAlert,
   updateSuggestionStatus,
 } from './lib/breweryStore';
+import { PROCESS_EXAMPLE_SUGGESTIONS } from './data/mockBreweryData';
 import {
   auth,
   signInWithGoogle,
@@ -36,6 +38,7 @@ import {
 import {
   createSuggestionInFirestore,
   subscribeFirestoreSuggestions,
+  syncProcessExampleSuggestionsToFirestore,
   updateSuggestionInFirestore,
 } from './lib/firebase/suggestionsFirestore';
 import {
@@ -75,6 +78,7 @@ export default function App() {
   const [authReady, setAuthReady] = useState<boolean>(false);
   const [currentProfile, setCurrentProfile] = useState<FirestoreUserProfile | null>(null);
   const [userProfiles, setUserProfiles] = useState<FirestoreUserProfile[]>([]);
+  const [cloudSuggestionsLoaded, setCloudSuggestionsLoaded] = useState<boolean>(false);
   const [firestoreError, setFirestoreError] = useState<Error | null>(null);
 
   const [isOffline, setIsOffline] = useState<boolean>(false);
@@ -136,6 +140,7 @@ export default function App() {
       setAuthReady(true);
       if (!user) {
         setCloudSuggestions([]);
+        setCloudSuggestionsLoaded(false);
         setCurrentProfile(null);
         setUserProfiles([]);
         setIsPasswordModalOpen(false);
@@ -183,6 +188,7 @@ export default function App() {
       firebaseUser,
       items => {
         setCloudSuggestions(items);
+        setCloudSuggestionsLoaded(true);
       },
       err => {
         setFirestoreError(err);
@@ -218,6 +224,31 @@ export default function App() {
     [cloudSuggestions]
   );
 
+  // 관리자 최초 접속 시 8개 공정 제안 예시를 Firestore에 1회 자동 동기화
+  const firestoreExampleSyncRef = useRef<boolean>(false);
+  useEffect(() => {
+    if (!firebaseUser || !cloudSuggestionsLoaded || isOffline) return;
+    const isAdminUser = isBootstrappedAdminUser(firebaseUser) || currentProfile?.role === 'ADMIN';
+    if (!isAdminUser) return;
+    if (firestoreExampleSyncRef.current) return;
+    if (localStorage.getItem('sulsul_firestore_examples_synced_v1') === '1') return;
+
+    firestoreExampleSyncRef.current = true;
+    void syncProcessExampleSuggestionsToFirestore(
+      PROCESS_EXAMPLE_SUGGESTIONS,
+      cloudSuggestionIds,
+      firebaseUser,
+      isAdminUser
+    )
+      .then(() => {
+        localStorage.setItem('sulsul_firestore_examples_synced_v1', '1');
+      })
+      .catch(err => {
+        firestoreExampleSyncRef.current = false;
+        console.warn('공정별 제안 예시 Firestore 동기화 대기:', err);
+      });
+  }, [firebaseUser, cloudSuggestionsLoaded, currentProfile, isOffline, cloudSuggestionIds]);
+
   const suggestions = useMemo(() => {
     if (cloudSuggestions.length === 0) return localSuggestions;
     const cloudMap = new Map(cloudSuggestions.map(item => [item.id, item]));
@@ -245,7 +276,9 @@ export default function App() {
 
     return {
       id: fallbackId,
-      name: firebaseUser?.displayName || `직원 ${fallbackId}`,
+      name:
+        firebaseUser?.displayName ||
+        (isBootstrappedAdminUser(firebaseUser) ? '허준원 관리자' : `직원 ${fallbackId}`),
       process: isBootstrappedAdminUser(firebaseUser) ? 'ADMIN' : 'RFC',
       role: isBootstrappedAdminUser(firebaseUser) ? 'ADMIN' : 'WORKER',
       phone: '-',
@@ -548,6 +581,31 @@ export default function App() {
     showInfoToast(`오프라인 보관 제안 ${count}건이 중앙 서버로 정상 동기화되었습니다.`);
   };
 
+  // 누락된 8개 공정별 제안 예시 수동/일괄 재등록
+  const handleRegisterProcessExamples = async () => {
+    registerProcessExampleSuggestions();
+    if (firebaseUser && !isOffline && canManageAccounts) {
+      try {
+        const synced = await syncProcessExampleSuggestionsToFirestore(
+          PROCESS_EXAMPLE_SUGGESTIONS,
+          cloudSuggestionIds,
+          firebaseUser,
+          true
+        );
+        localStorage.setItem('sulsul_firestore_examples_synced_v1', '1');
+        showInfoToast(
+          synced > 0
+            ? `양조2팀 8개 공정 제안 예시 ${synced}건이 Firestore에 등록되었습니다.`
+            : '양조2팀 8개 공정 제안 예시가 모두 등록되어 있습니다.'
+        );
+      } catch (err) {
+        if (err instanceof Error) setFirestoreError(err);
+      }
+    } else {
+      showInfoToast('양조2팀 8개 공정 제안 예시가 등록되었습니다.');
+    }
+  };
+
   if (firestoreError) {
     throw firestoreError;
   }
@@ -731,6 +789,7 @@ export default function App() {
             onRequestNotificationPermission={handleRequestNotificationPermission}
             onDispatchPushAlerts={handleDispatchPushAlerts}
             onOpenAccountManager={canManageAccounts ? () => setIsAccountManagerOpen(true) : undefined}
+            onRegisterProcessExamples={canManageAccounts ? handleRegisterProcessExamples : undefined}
             realUserCount={userProfiles.length}
           />
         )}

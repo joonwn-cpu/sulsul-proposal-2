@@ -158,11 +158,12 @@ export function subscribeFirestoreSuggestions(
  */
 export async function createSuggestionInFirestore(
   suggestion: Suggestion,
-  user: User
+  user: User,
+  isAdminOverride = false
 ): Promise<void> {
   const safeId = sanitizeId(suggestion.id, 'SUG');
   const docPath = `suggestions/${safeId}`;
-  const isAdmin = isBootstrappedAdminUser(user);
+  const isAdmin = isBootstrappedAdminUser(user) || isAdminOverride;
   const safeProcess = normalizeProcess(suggestion.process);
   const safeAuthorProcess = normalizeProcess(suggestion.authorProcess);
   const priorityScore = calculatePriorityScore({
@@ -204,11 +205,46 @@ export async function createSuggestionInFirestore(
     payload.deadlineAlertDays = Math.min(30, Math.max(0, Math.round(suggestion.deadlineAlertDays)));
   }
 
+  if (isAdmin) {
+    if (suggestion.assignedTo?.trim()) {
+      payload.assignedTo = clampString(suggestion.assignedTo, MAX_ASSIGNED_TO_LENGTH);
+    }
+    if (suggestion.assignedToId?.trim()) {
+      payload.assignedToId = clampString(suggestion.assignedToId, MAX_ASSIGNED_TO_ID_LENGTH);
+    }
+    if (suggestion.adminFeedback?.trim()) {
+      payload.adminFeedback = clampString(suggestion.adminFeedback, MAX_FEEDBACK_LENGTH);
+    }
+    if (suggestion.completedAt?.trim()) {
+      payload.completedAt = clampString(suggestion.completedAt, MAX_COMPLETED_AT_LENGTH);
+    }
+  }
+
   try {
     await setDoc(doc(db, 'suggestions', safeId), payload);
   } catch (error) {
     handleFirestoreError(error, OperationType.CREATE, docPath);
   }
+}
+
+/**
+ * 누락된 공정별 제안 예시 목록을 Firestore에 일괄 등록
+ */
+export async function syncProcessExampleSuggestionsToFirestore(
+  examples: Suggestion[],
+  existingCloudIds: Set<string>,
+  user: User,
+  isAdminOverride = false
+): Promise<number> {
+  const missing = examples.filter(item => !existingCloudIds.has(item.id));
+  if (missing.length === 0) return 0;
+
+  let createdCount = 0;
+  for (const item of missing) {
+    await createSuggestionInFirestore(item, user, isAdminOverride);
+    createdCount += 1;
+  }
+  return createdCount;
 }
 
 /**
